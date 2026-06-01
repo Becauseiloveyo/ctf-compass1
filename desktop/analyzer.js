@@ -105,7 +105,7 @@ const MORSE_DECODE_MAP = {
 
 const EMBEDDED_SIGNATURES = [
   { id: "zip", label: "ZIP", ext: ".zip", magic: Buffer.from([0x50, 0x4b, 0x03, 0x04]) },
-  { id: "gzip", label: "GZIP", ext: ".gz", magic: Buffer.from([0x1f, 0x8b]) },
+  { id: "gzip", label: "GZIP", ext: ".gz", magic: Buffer.from([0x1f, 0x8b, 0x08]) },
   { id: "png", label: "PNG", ext: ".png", magic: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]) },
   { id: "pdf", label: "PDF", ext: ".pdf", magic: Buffer.from("%PDF") },
   { id: "elf", label: "ELF", ext: ".elf", magic: Buffer.from([0x7f, 0x45, 0x4c, 0x46]) },
@@ -236,6 +236,8 @@ const CATEGORY_RULES = {
 };
 
 const KNOWN_FLAG_PREFIX = /\b(?:flag|ctf|key|answer|picoCTF|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{/i;
+const LOOSE_FLAG_PREFIX = /\bflag\s*[:=_-]\s*[a-zA-Z0-9_\/+=-]{6,160}\b/i;
+const LOOSE_FLAG_PREFIX_GLOBAL = /\bflag\s*[:=_-]\s*[a-zA-Z0-9_\/+=-]{6,160}\b/gi;
 const NATURAL_TEXT_HINT = /\b(?:the|this|that|flag|password|secret|cookie|session|token|login|http|https|user|admin|hello|world|image|file|data|text)\b/i;
 const OFFICE_DOCUMENT_EXTENSIONS = [".docx", ".xlsx", ".pptx", ".docm", ".xlsm", ".pptm", ".odt", ".ods", ".odp"];
 
@@ -494,7 +496,7 @@ function pushDecodedResult(bucket, item) {
 
   const score = typeof item.score === "number" ? item.score : scoreDecodedText(value);
   const strict = Boolean(item.strict);
-  const looksLikeFlag = KNOWN_FLAG_PREFIX.test(value) || /\bflag[:=_ -]{0,4}[a-zA-Z0-9_\/+=-]{6,160}\b/i.test(value);
+  const looksLikeFlag = KNOWN_FLAG_PREFIX.test(value) || LOOSE_FLAG_PREFIX.test(value);
   const looksLikeNaturalText = NATURAL_TEXT_HINT.test(value) || /\s/.test(value);
 
   if (strict && !looksLikeFlag && (!looksLikeNaturalText || score < 8)) {
@@ -509,6 +511,65 @@ function pushDecodedResult(bucket, item) {
     label: item.label,
     value: value.slice(0, 240),
     score,
+  });
+}
+
+function isMostlyCjkText(text) {
+  const chars = Array.from(String(text || "")).filter((char) => char.trim());
+  if (chars.length < 8) {
+    return false;
+  }
+  const cjkCount = chars.filter((char) => {
+    const codePoint = char.codePointAt(0);
+    return (codePoint >= 0x3400 && codePoint <= 0x9fff) || (codePoint >= 0xf900 && codePoint <= 0xfaff);
+  }).length;
+  return cjkCount / chars.length >= 0.45;
+}
+
+function collectUnicodeProjectionDecodes(text, bucket) {
+  if (!isMostlyCjkText(text)) {
+    return;
+  }
+
+  const chars = Array.from(text).filter((char) => char.codePointAt(0) <= 0xffff);
+  if (chars.length < 8) {
+    return;
+  }
+
+  const variants = [
+    {
+      label: "UTF-8 bytes from CJK codepoints (BE)",
+      bytes: chars.flatMap((char) => {
+        const codePoint = char.codePointAt(0);
+        return [(codePoint >> 8) & 0xff, codePoint & 0xff];
+      }),
+    },
+    {
+      label: "UTF-8 bytes from CJK codepoints (LE)",
+      bytes: chars.flatMap((char) => {
+        const codePoint = char.codePointAt(0);
+        return [codePoint & 0xff, (codePoint >> 8) & 0xff];
+      }),
+    },
+  ];
+
+  variants.forEach((variant) => {
+    const decoded = Buffer.from(variant.bytes).toString("utf8").replace(/\0/g, "").trim();
+    if (!decoded || decoded === text || decoded.includes("\ufffd")) {
+      return;
+    }
+
+    const flags = findFlagCandidates(decoded, variant.label);
+    const printableScore = scorePrintableRatio(Buffer.from(decoded, "utf8"));
+    if (flags.length || NATURAL_TEXT_HINT.test(decoded) || printableScore > 0.72) {
+      pushDecodedResult(bucket, {
+        type: "unicode-projection",
+        label: variant.label,
+        value: decoded,
+        score: scoreDecodedText(decoded) + (flags.length ? 3 : 0),
+        strict: true,
+      });
+    }
   });
 }
 
@@ -563,6 +624,8 @@ function smartDecodeTextContent(buffer) {
     directFlagHits === 0 &&
     !NATURAL_TEXT_HINT.test(text) &&
     ((text.match(/\s/g) || []).length <= Math.max(2, text.length * 0.06));
+
+  collectUnicodeProjectionDecodes(text, results);
 
   encoded.base64.forEach((value) => {
     try {
@@ -874,13 +937,17 @@ function findFlagCandidates(text, source) {
   const patterns = [
     /\b(?:flag|ctf|key|answer|picoCTF|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{[^{}\r\n]{3,160}\}/gi,
     /\b[a-zA-Z0-9_]{2,32}\{[^{}\r\n]{3,160}\}/g,
-    /\bflag[:=_ -]{0,4}[a-zA-Z0-9_\/+=-]{6,160}\b/gi,
+    LOOSE_FLAG_PREFIX_GLOBAL,
   ];
 
   for (const pattern of patterns) {
     for (const match of text.matchAll(pattern)) {
+      const value = match[0].trim();
+      if (/^flag\s+(?:candidate|candidates|value|values|source|format|result|results)\b/i.test(value)) {
+        continue;
+      }
       candidates.push({
-        value: match[0],
+        value,
         source,
       });
     }
@@ -4467,7 +4534,7 @@ function buildFailureGuide(error, action, artifact) {
     guide.title = "压缩包未能自动解包";
     guide.steps = [
       "确认压缩包是否加密；如果题目给过密码，把密码写入备注后重新分析。",
-      "检查是否是 RAR/7Z/TAR 等当前内置解包不支持的格式；这类文件建议安装 7-Zip 或 binwalk 后重跑。",
+      "检查是否是 RAR/7Z/TAR 等当前内置解包不支持的格式；这类文件可选使用 7-Zip 或 binwalk 复核。",
       "如果是嵌套压缩包，先确认第一层是否成功提取，再从生成文件继续分析。",
     ];
     guide.fallback = "内置解包覆盖 ZIP/GZIP；复杂压缩格式建议用 7-Zip、binwalk 或手动指定密码处理。";
@@ -4587,8 +4654,8 @@ function buildSolverResult(artifacts, flagCandidates, pipelineLog, pipelineError
       confidence: primaryFlag.score,
       actionsRun: pipelineLog.length,
       artifactCount: artifacts.length,
-      missingTools,
-      failedActions,
+      missingTools: [],
+      failedActions: [],
       nextActions,
     };
   }
@@ -4981,7 +5048,7 @@ function buildBuiltinToolboxReport(filePath) {
   appendReportSection(lines, "strings-lite suspicious strings", suspiciousStrings.map((item) => `- ${item}`), "未发现明显可疑字符串。");
 
   const directFlags = findFlagCandidates(text, `${fileName} (built-in strings)`);
-  appendReportSection(lines, "flag candidates", directFlags.map((item) => `- ${item.value} (${item.source})`), "未直接命中 flag 样式。");
+  appendReportSection(lines, "flag hits", directFlags.map((item) => `- ${item.value} (${item.source})`), "未直接命中 flag 样式。");
 
   const decoded = smartDecodeTextContent(Buffer.from(text, "utf8"));
   appendReportSection(

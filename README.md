@@ -7,7 +7,7 @@ CTF Compass is a safe, extensible desktop app for lawful CTF practice. It is des
 This project is intentionally limited to legitimate CTF training workflows:
 
 - classify challenge types from metadata, notes, and attached artifacts
-- extract likely flag candidates from text, ASCII / UTF-16 strings, and recursive encoded content
+- extract likely flag candidates from text, ASCII / UTF-16 strings, recursive encoded content, and CJK codepoint byte projection
 - automatically unpack ZIP and GZIP content and continue recursive analysis
 - automatically decode base64, hex, base32, ascii85, URL-encoded, single-byte XOR, and compressed text layers when they produce useful local results
 - automatically extract solvable image clues such as appended payloads, PNG text chunks, low-bit-plane candidates, and JPEG COM / XMP / APP segment payloads
@@ -94,7 +94,7 @@ npm run dist:dir
 
 The unpacked Windows app will be written to `release/win-unpacked/`.
 
-A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.4.4-win-x64.zip`.
+A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.4.5-win-x64.zip`.
 
 ## Next Steps
 

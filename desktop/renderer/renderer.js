@@ -43,7 +43,7 @@ const STRINGS = {
   solverNoFlag: "暂未命中 flag",
   solverRunMeta: "自动动作",
   solverArtifactMeta: "扫描文件",
-  solverMissingTools: "建议安装",
+  solverMissingTools: "可选增强",
   solverFailedActions: "失败动作",
   bundledToolTitle: "内置自动能力",
   bundledToolNote: "这些能力已随应用打包，分析时自动调用，不需要额外安装。",
@@ -81,9 +81,9 @@ const STRINGS = {
   toolMissing: "\u672a\u5b89\u88c5",
   toolSuggestedTitle: "\u9898\u578b\u5efa\u8bae",
   toolInstalledTitle: "\u672c\u673a\u53ef\u76f4\u63a5\u8fd0\u884c",
-  toolMissingTitle: "\u5f85\u5b89\u88c5\u589e\u5f3a",
+  toolMissingTitle: "可选增强工具",
   toolEmptyInstalled: "\u672a\u68c0\u6d4b\u5230\u53ef\u76f4\u63a5\u8fd0\u884c\u7684\u5916\u90e8\u5de5\u5177\u3002",
-  toolMissingNote: "安装后会自动参与本地求解，也可在附件卡片中手动执行",
+  toolMissingNote: "不安装也会使用内置工具箱；安装后只会增加更深的专项扫描。",
   settingsKicker: "\u8fd0\u884c\u7b56\u7565",
   settingsTitle: "\u9879\u76ee\u57fa\u7ebf",
   settingsThemeTitle: "\u754c\u9762\u98ce\u683c",
@@ -895,7 +895,7 @@ function renderSolverCard(solver) {
     card.append(flagBox);
   }
 
-  if (solver.missingTools?.length) {
+  if (solver.status !== "solved" && solver.missingTools?.length) {
     const missing = document.createElement("div");
     missing.className = "solver-tool-row";
     missing.innerHTML = `<span>${STRINGS.solverMissingTools}</span>`;
@@ -907,7 +907,7 @@ function renderSolverCard(solver) {
     card.append(missing);
   }
 
-  if (solver.failedActions?.length) {
+  if (solver.status !== "solved" && solver.failedActions?.length) {
     const failed = document.createElement("div");
     failed.className = "solver-failures";
     failed.innerHTML = `<span>${STRINGS.solverFailedActions}</span>`;
