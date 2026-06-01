@@ -96,9 +96,17 @@ The unpacked Windows app will be written to `release/win-unpacked/`.
 
 A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.4.6-win-x64.zip`.
 
+## GitHub Releases
+
+Versioned downloads are published through GitHub Releases.
+
+- Pushing a tag such as `v0.4.6` builds the Windows zip and uploads it to that release.
+- Historical builds can be backfilled from the Actions page by running `Build release` with a tag like `v0.4.5` and the matching commit SHA.
+- Release artifacts are named `CTF-Compass-<version>-win-x64.zip` so older versions remain easy to find.
+
 ## Next Steps
 
 1. Add dedicated workbench panes for PDF / Office so document-style attachments stop falling back to the generic results grid.
 2. Add an optional tool installer/bootstrap page that can generate Windows/WSL setup commands without silently changing the host.
 3. Deepen local binary routes with APK resource-id mapping, fuller DEX proto/method views, PE protection/export grouping, and ELF relocation detail views.
-4. Add category-specific plugin modules and release automation for GitHub Releases / installers.
+4. Add category-specific plugin modules and installer-specific packaging.
