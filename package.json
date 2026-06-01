@@ -1,6 +1,6 @@
 {
   "name": "ctf-compass-desktop",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "Desktop challenge classification and methodology workbench for lawful CTF analysis.",
   "main": "desktop/main.js",
   "author": "OpenAI Codex",

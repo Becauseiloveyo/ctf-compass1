@@ -204,7 +204,7 @@ const BUNDLED_TOOL_CAPABILITIES = [
     id: "ciphey-lite",
     label: "内置 ciphey-lite",
     replaces: "Ciphey",
-    purpose: "自动尝试 Base64、Hex、Base32、Ascii85、URL、ROT/Caesar、单字节 XOR 和压缩文本层。",
+    purpose: "自动尝试 Base64/Base58、Hex、Base32、Ascii85、URL、二进制/十进制字节、ROT/Caesar、Bacon、Brainfuck、零宽/空白隐写、单字节 XOR 和压缩文本层。",
   },
   {
     id: "zsteg-lite",
@@ -376,6 +376,33 @@ function ascii85Decode(value) {
     bytes.push(...tail.slice(0, originalLength - 1));
   }
 
+  return Buffer.from(bytes);
+}
+
+function base58Decode(value) {
+  const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+  const cleaned = String(value || "").trim();
+  let number = 0n;
+
+  for (const char of cleaned) {
+    const index = alphabet.indexOf(char);
+    if (index === -1) {
+      throw new Error("Invalid base58");
+    }
+    number = number * 58n + BigInt(index);
+  }
+
+  const bytes = [];
+  while (number > 0n) {
+    bytes.unshift(Number(number & 0xffn));
+    number >>= 8n;
+  }
+  for (const char of cleaned) {
+    if (char !== "1") {
+      break;
+    }
+    bytes.unshift(0);
+  }
   return Buffer.from(bytes);
 }
 
@@ -573,6 +600,245 @@ function collectUnicodeProjectionDecodes(text, bucket) {
   });
 }
 
+function addDerivedTextResult(bucket, type, label, value, options = {}) {
+  const decoded = String(value || "").replace(/\0/g, "").trim();
+  if (!decoded || decoded.length < 4 || decoded.includes("\ufffd")) {
+    return;
+  }
+
+  const flags = findFlagCandidates(decoded, label);
+  const score = scoreDecodedText(decoded) + (flags.length ? 3 : 0) + (options.scoreBoost || 0);
+  const printable = scorePrintableRatio(Buffer.from(decoded, "utf8"));
+  const hasUsefulWords = NATURAL_TEXT_HINT.test(decoded) || /\b(?:flag|ctf|key|secret|password|congrat|success|answer)\b/i.test(decoded);
+  if (!flags.length && !hasUsefulWords && score < 6.8 && printable < 0.84) {
+    return;
+  }
+
+  pushDecodedResult(bucket, {
+    type,
+    label,
+    value: decoded,
+    score,
+    strict: score < 8 && !flags.length,
+  });
+}
+
+function collectBitsAsText(bits, label, bucket) {
+  const cleaned = String(bits || "").replace(/[^01]/g, "");
+  if (cleaned.length < 32) {
+    return;
+  }
+
+  for (let start = 0; start < 8 && start + 32 <= cleaned.length; start += 1) {
+    const usable = cleaned.slice(start, cleaned.length - ((cleaned.length - start) % 8));
+    if (usable.length < 32) {
+      continue;
+    }
+    const bytes = [];
+    for (let index = 0; index + 8 <= usable.length && bytes.length < MAX_TEXT_BYTES; index += 8) {
+      bytes.push(parseInt(usable.slice(index, index + 8), 2));
+    }
+    const decoded = Buffer.from(bytes).toString("utf8");
+    addDerivedTextResult(bucket, "bitstream", `${label} offset ${start}`, decoded, { scoreBoost: start === 0 ? 0.4 : 0 });
+  }
+}
+
+function collectZeroWidthDecodes(text, bucket) {
+  const chars = Array.from(String(text || ""));
+  const zeroWidthSet = new Set(["\u200b", "\u200c", "\u200d", "\u2060", "\ufeff", "\u180e"]);
+  const sequence = chars.filter((char) => zeroWidthSet.has(char));
+  if (sequence.length >= 32) {
+    const unique = dedupeStrings(sequence);
+    if (unique.length === 2) {
+      const [first, second] = unique;
+      collectBitsAsText(sequence.map((char) => (char === first ? "0" : "1")).join(""), "zero-width 0/1", bucket);
+      collectBitsAsText(sequence.map((char) => (char === second ? "0" : "1")).join(""), "zero-width 1/0", bucket);
+    }
+  }
+
+  const tagText = chars
+    .map((char) => {
+      const codePoint = char.codePointAt(0);
+      return codePoint >= 0xe0020 && codePoint <= 0xe007e ? String.fromCharCode(codePoint - 0xe0000) : "";
+    })
+    .join("");
+  if (tagText.length >= 4) {
+    addDerivedTextResult(bucket, "unicode-tags", "Unicode tag characters", tagText, { scoreBoost: 1 });
+  }
+}
+
+function collectWhitespaceStegoDecodes(text, bucket) {
+  const trailing = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => {
+      const match = line.match(/[ \t]+$/);
+      return match ? match[0] : "";
+    })
+    .join("");
+
+  if (trailing.length < 32 || !/[ \t]/.test(trailing)) {
+    return;
+  }
+
+  collectBitsAsText(trailing.replace(/ /g, "0").replace(/\t/g, "1"), "trailing whitespace space=0 tab=1", bucket);
+  collectBitsAsText(trailing.replace(/ /g, "1").replace(/\t/g, "0"), "trailing whitespace space=1 tab=0", bucket);
+}
+
+function collectNumericAndEscapeDecodes(text, bucket) {
+  const source = String(text || "");
+  const binaryMatches = dedupeStrings(
+    Array.from(source.matchAll(/(?:^|[^01])((?:[01]{8}[\s,;:_-]*){4,})(?=$|[^01])/g))
+      .map((match) => match[1])
+      .slice(0, 12),
+  );
+  binaryMatches.forEach((value) => {
+    const bits = (value.match(/[01]{8}/g) || []).join("");
+    collectBitsAsText(bits, "binary bytes", bucket);
+  });
+
+  const hexByteMatches = dedupeStrings(
+    [
+      ...Array.from(source.matchAll(/((?:\\x[0-9a-fA-F]{2}){4,})/g)).map((match) => match[1]),
+      ...Array.from(source.matchAll(/((?:0x[0-9a-fA-F]{2}[\s,;:_-]*){4,})/g)).map((match) => match[1]),
+    ].slice(0, 12),
+  );
+  hexByteMatches.forEach((value) => {
+    const bytes = (value.match(/[0-9a-fA-F]{2}/g) || []).map((item) => parseInt(item, 16));
+    addDerivedTextResult(bucket, "hex-bytes", "escaped hex bytes", Buffer.from(bytes).toString("utf8"), { scoreBoost: 0.6 });
+  });
+
+  const decimalMatches = dedupeStrings(
+    Array.from(source.matchAll(/(?:^|[^\d])((?:\d{2,3}[\s,;:_-]+){3,}\d{2,3})(?=$|[^\d])/g))
+      .map((match) => match[1])
+      .slice(0, 12),
+  );
+  decimalMatches.forEach((value) => {
+    const numbers = (value.match(/\d{1,3}/g) || []).map((item) => Number(item));
+    if (numbers.length >= 4 && numbers.every((item) => item >= 0 && item <= 255)) {
+      addDerivedTextResult(bucket, "decimal-bytes", "decimal byte values", Buffer.from(numbers).toString("utf8"), { scoreBoost: 0.5 });
+    }
+  });
+
+  const htmlEntityMatches = dedupeStrings(Array.from(source.matchAll(/((?:&#(?:x[0-9a-fA-F]+|\d+);){4,})/g)).map((match) => match[1]).slice(0, 12));
+  htmlEntityMatches.forEach((value) => {
+    const chars = Array.from(value.matchAll(/&#(x[0-9a-fA-F]+|\d+);/g)).map((match) => {
+      const token = match[1];
+      return String.fromCodePoint(token.toLowerCase().startsWith("x") ? parseInt(token.slice(1), 16) : parseInt(token, 10));
+    });
+    addDerivedTextResult(bucket, "html-entities", "HTML numeric entities", chars.join(""), { scoreBoost: 0.6 });
+  });
+}
+
+function atbashText(text) {
+  return String(text || "").replace(/[A-Za-z]/g, (char) => {
+    const code = char.charCodeAt(0);
+    const base = code >= 97 ? 97 : 65;
+    return String.fromCharCode(base + (25 - (code - base)));
+  });
+}
+
+function rot47Text(text) {
+  return String(text || "").replace(/[!-~]/g, (char) => {
+    const code = char.charCodeAt(0);
+    return String.fromCharCode(33 + ((code - 33 + 47) % 94));
+  });
+}
+
+function collectClassicalCipherDecodes(text, bucket, wholeTextTransformAllowed) {
+  if (!wholeTextTransformAllowed) {
+    return;
+  }
+  addDerivedTextResult(bucket, "rot47", "ROT47", rot47Text(text), { scoreBoost: 0.2 });
+  addDerivedTextResult(bucket, "atbash", "ATBASH", atbashText(text), { scoreBoost: 0.2 });
+}
+
+function decodeBaconLetters(sequence, inverse = false) {
+  const alphabet = "abcdefghijklmnopqrstuvwxyz";
+  const bits = String(sequence || "")
+    .replace(/[^abAB]/g, "")
+    .toLowerCase()
+    .replace(/[ab]/g, (char) => {
+      const bit = char === "a" ? "0" : "1";
+      return inverse ? (bit === "0" ? "1" : "0") : bit;
+    });
+  const chars = [];
+  for (let index = 0; index + 5 <= bits.length; index += 5) {
+    const value = parseInt(bits.slice(index, index + 5), 2);
+    chars.push(value < 26 ? alphabet[value] : "?");
+  }
+  return chars.join("");
+}
+
+function collectBaconDecodes(text, bucket) {
+  const matches = dedupeStrings(
+    Array.from(String(text || "").matchAll(/(?:^|[^abAB])((?:[abAB][\s,;:_-]*){25,})(?=$|[^abAB])/g))
+      .map((match) => match[1])
+      .slice(0, 8),
+  );
+  matches.forEach((value) => {
+    addDerivedTextResult(bucket, "bacon", "Bacon A=0 B=1", decodeBaconLetters(value), { scoreBoost: 0.4 });
+    addDerivedTextResult(bucket, "bacon", "Bacon A=1 B=0", decodeBaconLetters(value, true), { scoreBoost: 0.2 });
+  });
+}
+
+function runBrainfuck(program, maxSteps = 300000, maxOutput = 4096) {
+  const code = String(program || "").replace(/[^\+\-\<\>\.\,\[\]]/g, "");
+  if (code.length < 12) {
+    return "";
+  }
+
+  const jump = new Map();
+  const stack = [];
+  for (let index = 0; index < code.length; index += 1) {
+    if (code[index] === "[") {
+      stack.push(index);
+    } else if (code[index] === "]") {
+      const open = stack.pop();
+      if (open === undefined) {
+        return "";
+      }
+      jump.set(open, index);
+      jump.set(index, open);
+    }
+  }
+  if (stack.length) {
+    return "";
+  }
+
+  const tape = new Uint8Array(30000);
+  let pointer = 0;
+  let instruction = 0;
+  let steps = 0;
+  let output = "";
+
+  while (instruction < code.length && steps < maxSteps && output.length < maxOutput) {
+    const op = code[instruction];
+    if (op === "+") tape[pointer] = (tape[pointer] + 1) & 0xff;
+    else if (op === "-") tape[pointer] = (tape[pointer] + 255) & 0xff;
+    else if (op === ">") pointer = Math.min(tape.length - 1, pointer + 1);
+    else if (op === "<") pointer = Math.max(0, pointer - 1);
+    else if (op === ".") output += String.fromCharCode(tape[pointer]);
+    else if (op === "[" && tape[pointer] === 0) instruction = jump.get(instruction);
+    else if (op === "]" && tape[pointer] !== 0) instruction = jump.get(instruction);
+    instruction += 1;
+    steps += 1;
+  }
+
+  return output;
+}
+
+function collectBrainfuckDecodes(text, bucket) {
+  const matches = dedupeStrings(
+    Array.from(String(text || "").matchAll(/[\+\-\<\>\.\,\[\]\s]{20,}/g))
+      .map((match) => match[0])
+      .filter((value) => (value.match(/[\+\-\<\>\.\,\[\]]/g) || []).length >= 12 && value.includes("."))
+      .slice(0, 6),
+  );
+  matches.forEach((value) => {
+    addDerivedTextResult(bucket, "brainfuck", "Brainfuck output", runBrainfuck(value), { scoreBoost: 1 });
+  });
+}
+
 function collectTextVariantsFromBuffer(buffer, label, bucket) {
   const decoded = decodeBufferAsText(buffer).trim();
   pushDecodedResult(bucket, {
@@ -626,6 +892,11 @@ function smartDecodeTextContent(buffer) {
     ((text.match(/\s/g) || []).length <= Math.max(2, text.length * 0.06));
 
   collectUnicodeProjectionDecodes(text, results);
+  collectZeroWidthDecodes(text, results);
+  collectWhitespaceStegoDecodes(text, results);
+  collectNumericAndEscapeDecodes(text, results);
+  collectBaconDecodes(text, results);
+  collectBrainfuckDecodes(text, results);
 
   encoded.base64.forEach((value) => {
     try {
@@ -649,6 +920,19 @@ function smartDecodeTextContent(buffer) {
   base32Matches.forEach((value) => {
     try {
       collectTextVariantsFromBuffer(base32Decode(value), "BASE32", results);
+    } catch (_error) {
+      // ignore
+    }
+  });
+
+  const base58Matches = dedupeStrings(
+    Array.from(text.matchAll(/(?:^|[^1-9A-HJ-NP-Za-km-z])([1-9A-HJ-NP-Za-km-z]{16,})(?=$|[^1-9A-HJ-NP-Za-km-z])/g))
+      .map((match) => match[1])
+      .slice(0, 10),
+  );
+  base58Matches.forEach((value) => {
+    try {
+      collectTextVariantsFromBuffer(base58Decode(value), "BASE58", results);
     } catch (_error) {
       // ignore
     }
@@ -696,6 +980,7 @@ function smartDecodeTextContent(buffer) {
       .sort((left, right) => (right.score || 0) - (left.score || 0))
       .slice(0, 4)
       .forEach((item) => results.push(item));
+    collectClassicalCipherDecodes(text, results, wholeTextTransformAllowed);
   }
 
   if (buffer.length <= 2048 && wholeTextTransformAllowed) {
@@ -837,7 +1122,7 @@ function detectMagic(buffer) {
   if (buffer.length >= 4 && buffer.subarray(0, 4).toString("ascii") === "%PDF") {
     return "pdf";
   }
-  if (buffer.length >= 2 && buffer[0] === 0x1f && buffer[1] === 0x8b) {
+  if (buffer.length >= 3 && buffer[0] === 0x1f && buffer[1] === 0x8b && buffer[2] === 0x08) {
     return "gzip";
   }
   return "";
@@ -4231,16 +4516,20 @@ async function buildArtifactSignals(filePath) {
         label: "\u89e3\u7801 Base64 / Hex",
       });
     }
-    if (smartDecoded.some((item) => item.type === "xor" || item.type === "rot13" || item.type === "base32")) {
-      artifact.highlights.push("\u68c0\u6d4b\u5230\u53ef\u8fdb\u4e00\u6b65\u89e3\u7801\u7684 XOR / ROT13 / Base32 \u7ebf\u7d22\u3002");
+    if (
+      smartDecoded.some((item) =>
+        ["xor", "rot13", "caesar", "base32", "bitstream", "unicode-tags", "bacon", "brainfuck", "rot47", "atbash", "decimal-bytes", "hex-bytes"].includes(item.type),
+      )
+    ) {
+      artifact.highlights.push("\u68c0\u6d4b\u5230\u53ef\u8fdb\u4e00\u6b65\u89e3\u7801\u7684\u6587\u672c\u9690\u5199\u6216\u7ecf\u5178\u7f16\u7801\u7ebf\u7d22\u3002");
       if (!artifact.actions.some((item) => item.id === "decode-encoded-text")) {
         artifact.actions.push({
           id: "decode-encoded-text",
-          label: "\u89e3\u7801 Base64 / Hex / XOR",
+          label: "\u89e3\u7801\u6587\u672c\u9690\u5199",
         });
       }
     }
-    artifact.suggestions.push("\u5bf9\u6587\u672c\u4f18\u5148\u505a base64/hex/XOR/ROT \u548c\u5206\u5757\u91cd\u7ec4\u3002");
+    artifact.suggestions.push("\u5bf9\u6587\u672c\u4f18\u5148\u505a base/hex/XOR/ROT\u3001\u96f6\u5bbd/\u7a7a\u767d\u9690\u5199\u548c\u5206\u5757\u91cd\u7ec4\u3002");
   } else if (artifact.family === "document") {
     artifact.summary = "\u6587\u6863\u7c7b\u9644\u4ef6\uff0c\u9700\u8981\u68c0\u67e5\u5185\u5d4c\u6587\u672c\u3001\u5173\u952e\u5b57\u3001\u9644\u4ef6\u548c\u5143\u6570\u636e\u3002";
     if (artifact.badge === "PDF" && pdfReport) {
@@ -4545,7 +4834,7 @@ function buildFailureGuide(error, action, artifact) {
       "尝试把可疑片段单独放进文本附件再运行，减少噪声。",
       "如果像古典密码或多层弱加密，安装 Ciphey 后重跑可获得更深的自动尝试。",
     ];
-    guide.fallback = "内置 ciphey-lite 已覆盖常见编码和单字节 XOR；未知密钥类密码仍需要题目线索。";
+    guide.fallback = "内置 ciphey-lite 已覆盖常见编码、文本隐写和单字节 XOR；未知密钥类密码仍需要题目线索。";
   } else if (actionId === "extract-png-lsb") {
     guide.title = "PNG 低位平面未命中";
     guide.steps = [
@@ -4954,7 +5243,7 @@ function decodeEncodedText(filePath, outputRoot) {
   const decoded = smartDecodeTextContent(buffer);
 
   if (!decoded.length) {
-    throw new Error("\u6ca1\u6709\u627e\u5230\u53ef\u76f4\u63a5\u89e3\u7801\u7684 Base64 / Hex / XOR / ROT13 / Base32 \u6bb5\u3002");
+    throw new Error("\u6ca1\u6709\u627e\u5230\u53ef\u76f4\u63a5\u89e3\u7801\u7684 Base/Hex/XOR/ROT/\u96f6\u5bbd/\u7a7a\u767d/Bacon/Brainfuck \u7ebf\u7d22\u3002");
   }
 
   const sections = decoded.map((item, index) => {

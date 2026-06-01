@@ -9,7 +9,7 @@ This project is intentionally limited to legitimate CTF training workflows:
 - classify challenge types from metadata, notes, and attached artifacts
 - extract likely flag candidates from text, ASCII / UTF-16 strings, recursive encoded content, and CJK codepoint byte projection
 - automatically unpack ZIP and GZIP content and continue recursive analysis
-- automatically decode base64, hex, base32, ascii85, URL-encoded, single-byte XOR, and compressed text layers when they produce useful local results
+- automatically decode base64, base58, hex, base32, ascii85, URL-encoded, binary/decimal byte streams, escaped byte text, single-byte XOR, ROT/Caesar, Bacon, Brainfuck, zero-width text, whitespace stego, Unicode tag text, and compressed text layers when they produce useful local results
 - automatically extract solvable image clues such as appended payloads, PNG text chunks, low-bit-plane candidates, and JPEG COM / XMP / APP segment payloads
 - automatically decode QR and 1D barcode payloads from local images and export RGB / luminance / edge / JPEG-block visualization views for image-based challenges
 - automatically summarize local traffic captures, extracting HTTP requests, DNS names, TLS SNI, cookies/tokens, and exported HTTP objects
@@ -94,7 +94,7 @@ npm run dist:dir
 
 The unpacked Windows app will be written to `release/win-unpacked/`.
 
-A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.4.5-win-x64.zip`.
+A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.4.6-win-x64.zip`.
 
 ## Next Steps
 
