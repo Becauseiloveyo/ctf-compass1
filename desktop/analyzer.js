@@ -112,6 +112,7 @@ const F5_DEZIGZAG = [
 
 const F5_PASSWORD_CANDIDATES = ["abc123", "", "ctf", "flag", "misc", "stego"];
 const MAX_F5_PAYLOAD_BYTES = 8 * 1024 * 1024;
+const MAX_PASSWORD_CANDIDATES = 80;
 
 const EMBEDDED_SIGNATURES = [
   { id: "zip", label: "ZIP", ext: ".zip", magic: Buffer.from([0x50, 0x4b, 0x03, 0x04]) },
@@ -311,6 +312,114 @@ function safeArchivePath(entryName) {
     .filter(Boolean)
     .map((segment) => sanitizeSegment(segment) || "_")
     .join(path.sep);
+}
+
+function normalizePasswordCandidate(value) {
+  const cleaned = String(value || "")
+    .trim()
+    .replace(/^[`'"\u201c\u201d\u2018\u2019()\[\]{}<>]+|[`'"\u201c\u201d\u2018\u2019()\[\]{}<>.,\uFF0C;\uFF1B:\uFF1A\u3002!\uFF01?\uFF1F]+$/g, "")
+    .replace(/^(?:pass(?:word)?|passwd|pwd|key|secret|token|hint|\u5bc6\u7801|\u53e3\u4ee4|\u5bc6\u94a5|\u63d0\u793a)\s*[:=\uFF1A\-]?\s*/i, "")
+    .trim();
+
+  if (!cleaned || cleaned.length > 64) {
+    return null;
+  }
+  if (/^(?:the|and|for|with|from|file|image|picture|archive|zip|jpg|jpeg|png|gif|flag|ctf|misc|stego)$/i.test(cleaned)) {
+    return null;
+  }
+  return cleaned;
+}
+
+function pushPasswordCandidate(target, value) {
+  const candidate = normalizePasswordCandidate(value);
+  if (!candidate || target.includes(candidate)) {
+    return;
+  }
+  target.push(candidate);
+}
+
+function collectPasswordHintsFromText(value) {
+  const text = String(value || "").trim();
+  if (!text) {
+    return [];
+  }
+
+  const candidates = [];
+  const compact = text.replace(/\s+/g, "");
+  if (compact !== text && compact.length <= 64) {
+    pushPasswordCandidate(candidates, compact);
+  }
+  if (text.length <= 64) {
+    pushPasswordCandidate(candidates, text);
+  }
+
+  const explicitHintRegex = /(?:pass(?:word)?|passwd|pwd|key|secret|token|hint|\u5bc6\u7801|\u53e3\u4ee4|\u5bc6\u94a5|\u63d0\u793a)\s*(?:[:=\uFF1A\u662F\u4E3A\-]\s*)?([^\s,\uFF0C;\uFF1B\u3002'"`<>]{1,64})/gi;
+  for (const match of text.matchAll(explicitHintRegex)) {
+    pushPasswordCandidate(candidates, match[1]);
+  }
+
+  const quotedRegex = /["'`\u201c\u201d\u2018\u2019]([^"'`\u201c\u201d\u2018\u2019]{1,64})["'`\u201c\u201d\u2018\u2019]/g;
+  for (const match of text.matchAll(quotedRegex)) {
+    pushPasswordCandidate(candidates, match[1]);
+  }
+
+  const tokenRegex = /[A-Za-z0-9_@#%+=.-]{3,64}|[\u4e00-\u9fff]{2,24}/g;
+  for (const match of text.matchAll(tokenRegex)) {
+    pushPasswordCandidate(candidates, match[0]);
+  }
+
+  return candidates;
+}
+
+function collectPasswordHintsFromPath(filePath) {
+  if (!filePath) {
+    return [];
+  }
+  const parsed = path.parse(String(filePath));
+  return collectPasswordHintsFromText(`${parsed.name} ${parsed.base}`);
+}
+
+function mergePasswordCandidates(primary = [], defaults = []) {
+  const output = [];
+  primary.forEach((item) => pushPasswordCandidate(output, item));
+  defaults.forEach((item) => {
+    if (item === "") {
+      if (!output.includes("")) {
+        output.push("");
+      }
+      return;
+    }
+    pushPasswordCandidate(output, item);
+  });
+  return output.slice(0, MAX_PASSWORD_CANDIDATES);
+}
+
+function buildPasswordCandidates(payload, filePaths = []) {
+  const sources = [];
+  sources.push(payload?.title, payload?.description, payload?.notes);
+  if (Array.isArray(payload?.tags)) {
+    sources.push(...payload.tags);
+  } else {
+    sources.push(payload?.tags);
+  }
+  filePaths.forEach((filePath) => sources.push(...collectPasswordHintsFromPath(filePath)));
+
+  const candidates = [];
+  sources.forEach((source) => {
+    collectPasswordHintsFromText(source).forEach((candidate) => pushPasswordCandidate(candidates, candidate));
+  });
+  return candidates.slice(0, MAX_PASSWORD_CANDIDATES);
+}
+
+function buildActionOptions(options = {}, filePath = "") {
+  const passwordCandidates = mergePasswordCandidates(
+    [...(options.passwordCandidates || []), ...collectPasswordHintsFromPath(filePath)],
+    [],
+  );
+  return {
+    ...options,
+    passwordCandidates,
+  };
 }
 
 function extractPrintableSegments(text, minLength = 8, maxCount = 20) {
@@ -5110,7 +5219,27 @@ function extractAppendedPayloads(filePath, outputRoot) {
   };
 }
 
-function extractZipEntries(zip, outputRoot) {
+function readZipEntryData(entry, passwordCandidates = []) {
+  try {
+    return entry.getData();
+  } catch (firstError) {
+    const candidates = mergePasswordCandidates(passwordCandidates, ["", "abc123", "123456", "ctf", "flag"]);
+    let lastError = firstError;
+    for (const password of candidates) {
+      if (password === "") {
+        continue;
+      }
+      try {
+        return entry.getData(password);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }
+}
+
+function extractZipEntries(zip, outputRoot, options = {}) {
   ensureOutputRoot(outputRoot);
   const entries = zip.getEntries().filter((entry) => !entry.isDirectory);
   if (!entries.length) {
@@ -5132,7 +5261,7 @@ function extractZipEntries(zip, outputRoot) {
     }
     const finalPath = path.join(outputRoot, relativePath);
     ensureOutputRoot(path.dirname(finalPath));
-    fs.writeFileSync(finalPath, entry.getData());
+    fs.writeFileSync(finalPath, readZipEntryData(entry, options.passwordCandidates || []));
     createdFiles.push(finalPath);
   }
 
@@ -5181,7 +5310,7 @@ function repairPseudoEncryptedZip(buffer) {
   return changed ? repaired : null;
 }
 
-function extractArchive(filePath, outputRoot) {
+function extractArchive(filePath, outputRoot, options = {}) {
   const sample = readSample(filePath, 16).buffer;
   if (detectMagic(sample) === "gzip" || path.extname(filePath).toLowerCase() === ".gz") {
     const buffer = fs.readFileSync(filePath);
@@ -5199,12 +5328,13 @@ function extractArchive(filePath, outputRoot) {
   }
 
   const zipBuffer = fs.readFileSync(filePath);
+  const actionOptions = buildActionOptions(options, filePath);
   let zip = new AdmZip(zipBuffer);
   let createdFiles = [];
   let usedPseudoEncryptedRepair = false;
 
   try {
-    createdFiles = extractZipEntries(zip, outputRoot);
+    createdFiles = extractZipEntries(zip, outputRoot, actionOptions);
   } catch (error) {
     const repaired = repairPseudoEncryptedZip(zipBuffer);
     if (!repaired) {
@@ -5212,7 +5342,7 @@ function extractArchive(filePath, outputRoot) {
     }
     writeGeneratedFile(outputRoot, `${sanitizeSegment(path.parse(filePath).name)}-zip-flags-repaired.zip`, repaired);
     zip = new AdmZip(repaired);
-    createdFiles = extractZipEntries(zip, outputRoot);
+    createdFiles = extractZipEntries(zip, outputRoot, actionOptions);
     usedPseudoEncryptedRepair = true;
   }
 
@@ -5877,8 +6007,8 @@ function extractPdfContent(filePath, outputRoot) {
   };
 }
 
-function extractDocumentPackage(filePath, outputRoot) {
-  return extractArchive(filePath, outputRoot);
+function extractDocumentPackage(filePath, outputRoot, options = {}) {
+  return extractArchive(filePath, outputRoot, options);
 }
 
 class JpegEntropyBitReader {
@@ -6330,9 +6460,10 @@ function scoreF5Payload(buffer) {
   return score;
 }
 
-function collectJpegF5Candidates(buffer) {
+function collectJpegF5Candidates(buffer, passwordCandidates = []) {
   const coefficients = parseJpegF5Coefficients(buffer);
-  return F5_PASSWORD_CANDIDATES.map((password) => extractF5Payload(coefficients, password))
+  const candidates = mergePasswordCandidates(passwordCandidates, F5_PASSWORD_CANDIDATES);
+  return candidates.map((password) => extractF5Payload(coefficients, password))
     .filter(Boolean)
     .map((candidate) => ({
       ...candidate,
@@ -6342,9 +6473,10 @@ function collectJpegF5Candidates(buffer) {
     .sort((left, right) => right.score - left.score);
 }
 
-function extractJpegF5(filePath, outputRoot) {
+function extractJpegF5(filePath, outputRoot, options = {}) {
   const buffer = fs.readFileSync(filePath);
-  const candidates = collectJpegF5Candidates(buffer);
+  const actionOptions = buildActionOptions(options, filePath);
+  const candidates = collectJpegF5Candidates(buffer, actionOptions.passwordCandidates);
   if (!candidates.length) {
     throw new Error("没有通过内置 F5-JPEG 提取到可信载荷；如题目给了密码，请把密码写进备注后再分析。");
   }
@@ -6672,7 +6804,7 @@ function extractPngLsb(filePath, outputRoot) {
   };
 }
 
-async function runArtifactActionInternal(actionId, filePath, outputRoot) {
+async function runArtifactActionInternal(actionId, filePath, outputRoot, options = {}) {
   if (!filePath || !fs.existsSync(filePath)) {
     throw new Error("\u76ee\u6807\u9644\u4ef6\u4e0d\u5b58\u5728\u3002");
   }
@@ -6690,7 +6822,7 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot) {
     return actionId === "extract-appended-zip" ? extractAppendedZip(filePath, baseDir) : extractAppendedPayloads(filePath, baseDir);
   }
   if (actionId === "extract-archive") {
-    return extractArchive(filePath, baseDir);
+    return extractArchive(filePath, baseDir, options);
   }
   if (actionId === "extract-image-metadata") {
     return extractImageMetadata(filePath, baseDir);
@@ -6699,7 +6831,7 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot) {
     return extractJpegSegments(filePath, baseDir);
   }
   if (actionId === "extract-jpeg-f5") {
-    return extractJpegF5(filePath, baseDir);
+    return extractJpegF5(filePath, baseDir, options);
   }
   if (actionId === "extract-image-qr") {
     return extractImageQr(filePath, baseDir);
@@ -6726,7 +6858,7 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot) {
     return extractPdfContent(filePath, baseDir);
   }
   if (actionId === "extract-document-package") {
-    return extractDocumentPackage(filePath, baseDir);
+    return extractDocumentPackage(filePath, baseDir, options);
   }
   if (actionId === "decode-encoded-text") {
     return decodeEncodedText(filePath, baseDir);
@@ -6811,7 +6943,7 @@ function shouldAutoRun(actionId, artifact) {
   return false;
 }
 
-async function buildPipelineArtifacts(rootPaths, outputRoot) {
+async function buildPipelineArtifacts(rootPaths, outputRoot, options = {}) {
   const queue = rootPaths.map((filePath) => ({
     filePath,
     depth: 0,
@@ -6844,7 +6976,7 @@ async function buildPipelineArtifacts(rootPaths, outputRoot) {
         continue;
       }
       try {
-        const result = await runArtifactActionInternal(action.id, artifact.path, outputRoot);
+        const result = await runArtifactActionInternal(action.id, artifact.path, outputRoot, options);
         const createdArtifacts = result.createdFiles
           .filter((createdPath) => fs.existsSync(createdPath))
           .map((createdPath) => buildGeneratedDescriptor(createdPath));
@@ -6903,7 +7035,8 @@ async function analyzeChallenge(payload, outputRoot) {
   }
 
   const collection = collectPaths(payload.artifacts || []);
-  const pipeline = await buildPipelineArtifacts(collection.files, outputRoot);
+  const passwordCandidates = buildPasswordCandidates({ title, description, notes, tags }, collection.files);
+  const pipeline = await buildPipelineArtifacts(collection.files, outputRoot, { passwordCandidates });
   const inlineFlags = [
     ...findFlagCandidates(title, "\u6807\u9898"),
     ...findFlagCandidates(description, "\u63cf\u8ff0"),
@@ -6934,6 +7067,7 @@ async function analyzeChallenge(payload, outputRoot) {
       title: title || COPY.app.unnamed,
       description,
       notes,
+      passwordCandidateCount: passwordCandidates.length,
       tags,
       artifactCount: pipeline.artifacts.length,
     },
