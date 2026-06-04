@@ -113,6 +113,7 @@ const F5_DEZIGZAG = [
 const F5_PASSWORD_CANDIDATES = ["abc123", "", "ctf", "flag", "misc", "stego"];
 const MAX_F5_PAYLOAD_BYTES = 8 * 1024 * 1024;
 const MAX_PASSWORD_CANDIDATES = 80;
+const MAX_JPEG_STEGO_TEXT_BYTES = 8192;
 
 const EMBEDDED_SIGNATURES = [
   { id: "zip", label: "ZIP", ext: ".zip", magic: Buffer.from([0x50, 0x4b, 0x03, 0x04]) },
@@ -4386,6 +4387,10 @@ async function buildArtifactSignals(filePath) {
         id: "extract-jpeg-f5",
         label: "内置 F5-JPEG 提取",
       });
+      artifact.actions.push({
+        id: "extract-jpeg-dct-stego",
+        label: "JPEG-DCT/Jsteg 扫描",
+      });
       const jpegSegments = parseJpegSegments(buffer);
       if (jpegSegments.length) {
         artifact.highlights.push(`JPEG \u6bb5 ${jpegSegments.length} \u4e2a\u3002`);
@@ -4969,6 +4974,30 @@ function buildFailureGuide(error, action, artifact) {
       "安装 zsteg 后重跑，用完整 LSB 组合暴力扫描补充内置 zsteg-lite。",
     ];
     guide.fallback = "内置 zsteg-lite 只跑常见 RGB/RGBA 低位可读文本，深度隐写仍建议 zsteg/stegsolve。";
+  } else if (actionId === "extract-jpeg-f5") {
+    guide.title = "JPEG F5 未命中";
+    guide.steps = [
+      "确认使用的是题目原始 JPG，平台预览图或二次压缩图会破坏 DCT 系数。",
+      "如果标题、描述或附件里出现 password、key、hint，把这些内容加入备注后重新分析。",
+      "继续查看 JPEG 段、尾部附加数据、DCT/Jsteg 扫描报告和 strings，F5 失败不代表图片没有隐藏数据。",
+    ];
+    guide.fallback = "内置 F5 适合常见密码候选和标准 F5 载荷；OutGuess、steghide 或自定义矩阵编码仍需要更多题目线索。";
+  } else if (actionId === "extract-jpeg-dct-stego") {
+    guide.title = "JPEG DCT/Jsteg 扫描未命中";
+    guide.steps = [
+      "已尝试 AC LSB、非零系数、F5 bit-rule、符号位、DC LSB、正反顺序和位序组合。",
+      "优先检查题目是否提示 steghide、outguess、密码、质量因子或特定通道；这些通常不是纯 DCT 低位能直接恢复的。",
+      "继续查看 JPEG 段、尾部 ZIP/GZIP 附加数据和导出的文本线索，再决定是否进入人工隐写分析。",
+    ];
+    guide.fallback = "内置扫描只做无密码/弱假设的本地自动化；深度隐写、加密码隐写和被重压缩图片需要按题目 hint 定向处理。";
+  } else if (actionId === "extract-jpeg-segments") {
+    guide.title = "JPEG 段提取没有有效载荷";
+    guide.steps = [
+      "这通常表示 APP/COM 段里没有明显文本或嵌入文件，不代表图片整体无隐藏信息。",
+      "继续检查尾部附加数据、F5、DCT/Jsteg 和 strings；杂项图片题经常把线索放在多个位置。",
+      "如果题目给出 Exif、comment、thumbnail 等提示，确认拿到的是原始附件而不是网页预览图。",
+    ];
+    guide.fallback = "JPEG 段只是入口之一；后续应转向 DCT 系数、尾部拼接、压缩包递归或密码提示。";
   } else if (actionId === "extract-png-text") {
     guide.title = "PNG 文本块为空";
     guide.steps = [
@@ -5268,6 +5297,55 @@ function extractZipEntries(zip, outputRoot, options = {}) {
   return createdFiles;
 }
 
+function buildZipClueReport(zip, filePath, options = {}) {
+  const lines = ["# ZIP CLUES", `file: ${path.basename(filePath)}`, ""];
+  let globalComment = "";
+  try {
+    globalComment = zip.getZipComment() || "";
+  } catch (_error) {
+    globalComment = "";
+  }
+  if (globalComment) {
+    lines.push("## global comment", globalComment, "");
+  }
+
+  const passwordCandidates = options.passwordCandidates || [];
+  if (passwordCandidates.length) {
+    lines.push("## password candidates");
+    passwordCandidates.slice(0, 20).forEach((candidate) => lines.push(`- ${candidate || "(empty)"}`));
+    lines.push("");
+  }
+
+  const entries = zip.getEntries();
+  const encryptedEntries = entries.filter((entry) => entry.header?.encrypted);
+  lines.push("## entries");
+  entries.slice(0, MAX_ARCHIVE_ENTRIES).forEach((entry) => {
+    const header = entry.header || {};
+    const flags = header.flags ?? header.flag ?? 0;
+    const encrypted = header.encrypted ? " encrypted" : "";
+    const crc = typeof header.crc === "number" ? ` crc=0x${header.crc.toString(16).padStart(8, "0")}` : "";
+    const size = typeof header.size === "number" ? ` size=${header.size}` : "";
+    const compressedSize = typeof header.compressedSize === "number" ? ` compressed=${header.compressedSize}` : "";
+    lines.push(`- ${entry.entryName}${encrypted}${crc}${size}${compressedSize} flags=0x${Number(flags || 0).toString(16)}`);
+    if (entry.comment) {
+      lines.push(`  comment: ${entry.comment}`);
+    }
+    if (header.encrypted && header.size > 0 && header.size <= 4) {
+      lines.push("  note: encrypted tiny file; CRC brute force may recover very short plaintext.");
+    }
+  });
+  lines.push("");
+
+  if (encryptedEntries.length) {
+    lines.push("## encryption");
+    lines.push(`encrypted entries: ${encryptedEntries.length}`);
+    lines.push("The extractor tries challenge-derived password candidates first, then common CTF defaults, then pseudo-encryption flag repair.");
+    lines.push("");
+  }
+
+  return `${lines.join("\n")}\n`;
+}
+
 function repairPseudoEncryptedZip(buffer) {
   if (detectMagic(buffer) !== "zip") {
     return null;
@@ -5332,9 +5410,11 @@ function extractArchive(filePath, outputRoot, options = {}) {
   let zip = new AdmZip(zipBuffer);
   let createdFiles = [];
   let usedPseudoEncryptedRepair = false;
+  const buildReport = (targetZip) =>
+    writeGeneratedFile(outputRoot, `${sanitizeSegment(path.parse(filePath).name)}-zip-clues.txt`, buildZipClueReport(targetZip, filePath, actionOptions));
 
   try {
-    createdFiles = extractZipEntries(zip, outputRoot, actionOptions);
+    createdFiles = [buildReport(zip), ...extractZipEntries(zip, outputRoot, actionOptions)];
   } catch (error) {
     const repaired = repairPseudoEncryptedZip(zipBuffer);
     if (!repaired) {
@@ -5342,7 +5422,7 @@ function extractArchive(filePath, outputRoot, options = {}) {
     }
     writeGeneratedFile(outputRoot, `${sanitizeSegment(path.parse(filePath).name)}-zip-flags-repaired.zip`, repaired);
     zip = new AdmZip(repaired);
-    createdFiles = extractZipEntries(zip, outputRoot, actionOptions);
+    createdFiles = [buildReport(zip), ...extractZipEntries(zip, outputRoot, actionOptions)];
     usedPseudoEncryptedRepair = true;
   }
 
@@ -6502,6 +6582,177 @@ function extractJpegF5(filePath, outputRoot, options = {}) {
   };
 }
 
+function buildJpegDctBitStreams(coefficients) {
+  const variants = [
+    {
+      id: "jsteg-ac-abs-gt1",
+      label: "Jsteg AC abs>1 LSB",
+      include: (coefficient, index) => index % 64 !== 0 && Math.abs(coefficient) > 1,
+      bit: (coefficient) => Math.abs(coefficient) & 1,
+    },
+    {
+      id: "jsteg-ac-nonzero",
+      label: "Jsteg AC nonzero LSB",
+      include: (coefficient, index) => index % 64 !== 0 && coefficient !== 0,
+      bit: (coefficient) => Math.abs(coefficient) & 1,
+    },
+    {
+      id: "f5-bit-rule",
+      label: "F5 bit-rule ordered",
+      include: (coefficient, index) => index % 64 !== 0 && coefficient !== 0,
+      bit: readF5Bit,
+    },
+    {
+      id: "ac-sign",
+      label: "AC sign bits",
+      include: (coefficient, index) => index % 64 !== 0 && Math.abs(coefficient) > 1,
+      bit: (coefficient) => (coefficient < 0 ? 1 : 0),
+    },
+    {
+      id: "dc-lsb",
+      label: "DC coefficient LSB",
+      include: (coefficient, index) => index % 64 === 0 && coefficient !== 0,
+      bit: (coefficient) => Math.abs(coefficient) & 1,
+    },
+  ];
+
+  return variants.map((variant) => ({
+    ...variant,
+    bits: coefficients.filter((coefficient, index) => variant.include(coefficient, index)).map((coefficient) => variant.bit(coefficient)),
+  }));
+}
+
+function collectJpegDctCandidates(buffer) {
+  const coefficients = parseJpegF5Coefficients(buffer);
+  const results = [];
+  for (const stream of buildJpegDctBitStreams(coefficients)) {
+    if (stream.bits.length < 64) {
+      continue;
+    }
+    const directions = [
+      { id: "forward", bits: stream.bits },
+      { id: "reverse", bits: stream.bits.slice().reverse() },
+    ];
+    for (const direction of directions) {
+      for (const bitOrder of ["lsb", "msb"]) {
+        for (let offset = 0; offset < 8; offset += 1) {
+          const payloadBits = direction.bits.slice(offset, offset + MAX_JPEG_STEGO_TEXT_BYTES * 8);
+          const payload = bitsToBuffer(payloadBits, bitOrder);
+          if (!payload.length) {
+            continue;
+          }
+          const decoded = decodeBufferAsText(payload);
+          const source = `JPEG-DCT-${stream.id}-${direction.id}-${bitOrder}-offset${offset}`;
+          const flags = findFlagCandidates(decoded, source);
+          const printable = extractPrintableSegments(decoded, 12, 8);
+          const magicHits = scanEmbeddedSignatures(payload, 0, 4);
+          const score = Math.max(scoreDecodedText(decoded), flags.length ? 32 : 0, magicHits.length ? 16 : 0);
+          if (!flags.length && !magicHits.length && (!printable.length || score < 8)) {
+            continue;
+          }
+          results.push({
+            streamId: stream.id,
+            label: stream.label,
+            direction: direction.id,
+            bitOrder,
+            offset,
+            payload,
+            decoded,
+            flags,
+            printable,
+            magicHits,
+            score,
+          });
+        }
+      }
+    }
+  }
+
+  const deduped = new Map();
+  results.forEach((item) => {
+    const key = [
+      item.streamId,
+      item.direction,
+      item.bitOrder,
+      item.offset,
+      item.flags.map((flag) => flag.value).join("|"),
+      item.printable.join("|"),
+      item.magicHits.map((hit) => `${hit.id}@${hit.offset}`).join("|"),
+    ].join("@@");
+    const current = deduped.get(key);
+    if (!current || item.score > current.score) {
+      deduped.set(key, item);
+    }
+  });
+
+  return Array.from(deduped.values())
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 24);
+}
+
+function extractJpegDctStego(filePath, outputRoot) {
+  const buffer = fs.readFileSync(filePath);
+  const candidates = collectJpegDctCandidates(buffer);
+  if (!candidates.length) {
+    ensureOutputRoot(outputRoot);
+    const baseName = sanitizeSegment(path.parse(filePath).name);
+    const reportPath = writeGeneratedFile(
+      outputRoot,
+      `${baseName}-jpeg-dct-report.txt`,
+      `# JPEG-DCT STEGO\nfile: ${path.basename(filePath)}\n\n未通过 Jsteg/DCT 低位扫描提取到可信文本或载荷。\n`,
+    );
+    return {
+      message: "已运行 JPEG-DCT/Jsteg 低位扫描，未命中可信候选。",
+      createdFiles: [reportPath],
+    };
+  }
+
+  ensureOutputRoot(outputRoot);
+  const baseName = sanitizeSegment(path.parse(filePath).name);
+  const createdFiles = [];
+  const report = ["# JPEG-DCT STEGO", `file: ${path.basename(filePath)}`, ""];
+
+  candidates.forEach((candidate, index) => {
+    const header = `[${index + 1}] ${candidate.label} ${candidate.direction} ${candidate.bitOrder} offset=${candidate.offset} score=${candidate.score.toFixed(2)}`;
+    report.push(header);
+    candidate.flags.forEach((flag) => report.push(`flag: ${flag.value}`));
+    candidate.magicHits.forEach((hit) => report.push(`payload-signature: ${hit.label} at 0x${hit.offset.toString(16)}`));
+    candidate.printable.slice(0, 4).forEach((line) => report.push(`text: ${line.slice(0, 300)}`));
+    report.push("");
+
+    if (candidate.flags.length || candidate.printable.length) {
+      const textName = `${baseName}-jpeg-dct-${index + 1}.txt`;
+      createdFiles.push(
+        writeGeneratedFile(
+          outputRoot,
+          textName,
+          [
+            header,
+            "",
+            ...candidate.flags.map((flag) => flag.value),
+            ...candidate.printable,
+            "",
+            candidate.decoded.slice(0, MAX_TEXT_BYTES),
+          ].join("\n"),
+        ),
+      );
+    }
+
+    const firstMagic = candidate.magicHits.find((hit) => hit.offset < 64);
+    if (firstMagic) {
+      const extension = firstMagic.ext || inferPayloadExtension(candidate.payload.subarray(firstMagic.offset));
+      createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-jpeg-dct-${index + 1}${extension}`, candidate.payload.subarray(firstMagic.offset)));
+    }
+  });
+
+  createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-jpeg-dct-report.txt`, `${report.join("\n")}\n`));
+
+  return {
+    message: `已运行 JPEG-DCT/Jsteg 低位扫描，命中 ${candidates.length} 组候选。`,
+    createdFiles: dedupeStrings(createdFiles),
+  };
+}
+
 function extractJpegComments(buffer) {
   if (detectMagic(buffer) !== "jpeg" || buffer.length < 4) {
     return [];
@@ -6833,6 +7084,9 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot, options
   if (actionId === "extract-jpeg-f5") {
     return extractJpegF5(filePath, baseDir, options);
   }
+  if (actionId === "extract-jpeg-dct-stego") {
+    return extractJpegDctStego(filePath, baseDir);
+  }
   if (actionId === "extract-image-qr") {
     return extractImageQr(filePath, baseDir);
   }
@@ -6900,6 +7154,9 @@ function shouldAutoRun(actionId, artifact) {
   }
   if (actionId === "extract-jpeg-f5") {
     return artifact.badge === "JPEG" && artifact.depth < MAX_PIPELINE_DEPTH;
+  }
+  if (actionId === "extract-jpeg-dct-stego") {
+    return artifact.badge === "JPEG" && artifact.depth < MAX_PIPELINE_DEPTH && !(artifact.flagCandidates || []).length;
   }
   if (actionId === "extract-image-qr") {
     return artifact.family === "image" && artifact.depth === 0;
