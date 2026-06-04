@@ -12,7 +12,7 @@ function createWindow() {
     height: 980,
     minWidth: 1240,
     minHeight: 780,
-    backgroundColor: "#eef2f4",
+    backgroundColor: "#0a0a0b",
     title: "CTF Compass",
     autoHideMenuBar: true,
     show: false,

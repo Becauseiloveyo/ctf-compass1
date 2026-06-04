@@ -161,7 +161,7 @@ const VIEW_COPY = {
 const state = {
   activeView: "workspace",
   workbenchFamily: "binary",
-  theme: localStorage.getItem("ctf-theme") || "light",
+  theme: localStorage.getItem("ctf-theme") || "dark",
   isBusy: false,
   artifacts: [],
   analysis: null,
