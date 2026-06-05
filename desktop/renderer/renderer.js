@@ -162,7 +162,7 @@ const state = {
   activeView: "workspace",
   workbenchFamily: "binary",
   theme: localStorage.getItem("ctf-theme") || "light",
-  sidebarCollapsed: true,
+  sidebarCollapsed: localStorage.getItem("ctf-sidebar-collapsed") === "true",
   isBusy: false,
   artifacts: [],
   analysis: null,
@@ -493,6 +493,8 @@ function toggleTheme() {
 function setSidebarCollapsed(collapsed) {
   state.sidebarCollapsed = collapsed;
   elements.body.classList.toggle("sidebar-collapsed", collapsed);
+  elements.body.classList.remove("sidebar-hover-expanded");
+  localStorage.setItem("ctf-sidebar-collapsed", String(collapsed));
   if (elements.sidebarToggle) {
     elements.sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
     elements.sidebarToggle.setAttribute("aria-label", collapsed ? "展开侧边栏" : "折叠侧边栏");
@@ -509,30 +511,36 @@ function bindSidebarHover() {
     return;
   }
 
-  function scheduleSidebarState(collapsed, delay) {
+  function scheduleTemporaryExpansion(expanded, delay) {
     window.clearTimeout(sidebarHoverTimer);
     sidebarHoverTimer = window.setTimeout(() => {
-      setSidebarCollapsed(collapsed);
+      if (!state.sidebarCollapsed) {
+        elements.body.classList.remove("sidebar-hover-expanded");
+        return;
+      }
+      elements.body.classList.toggle("sidebar-hover-expanded", expanded);
     }, delay);
   }
 
   elements.sidebar.addEventListener("pointerenter", () => {
-    scheduleSidebarState(false, 70);
+    scheduleTemporaryExpansion(true, 90);
   });
 
   elements.sidebar.addEventListener("pointerleave", () => {
-    scheduleSidebarState(true, 140);
+    scheduleTemporaryExpansion(false, 180);
   });
 
   elements.sidebar.addEventListener("focusin", () => {
     window.clearTimeout(sidebarHoverTimer);
-    setSidebarCollapsed(false);
+    if (state.sidebarCollapsed) {
+      elements.body.classList.add("sidebar-hover-expanded");
+    }
   });
 
   elements.sidebar.addEventListener("focusout", () => {
     window.setTimeout(() => {
-      if (!elements.sidebar.contains(document.activeElement)) {
-        setSidebarCollapsed(true);
+      if (state.sidebarCollapsed && !elements.sidebar.contains(document.activeElement)) {
+        elements.body.classList.remove("sidebar-hover-expanded");
       }
     }, 0);
   });
