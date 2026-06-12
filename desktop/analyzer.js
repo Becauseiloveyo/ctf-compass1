@@ -1839,6 +1839,111 @@ function getVcdValueAt(transitions, timestamp) {
   return value;
 }
 
+function collectUartCandidates(signals, candidates) {
+  const attempts = [];
+  signals
+    .filter((signal) => signal.width === 1 && signal.transitions.length >= 8)
+    .slice(0, 16)
+    .forEach((signal) => {
+      const intervals = [];
+      for (let index = 1; index < signal.transitions.length; index += 1) {
+        const interval = signal.transitions[index].time - signal.transitions[index - 1].time;
+        if (interval > 0) intervals.push(interval);
+      }
+      const periodCandidates = dedupeStrings(
+        intervals
+          .flatMap((interval) => Array.from({ length: 8 }, (_unused, divisor) => Math.round(interval / (divisor + 1))))
+          .filter((value) => value > 0)
+          .map(String),
+      )
+        .map(Number)
+        .sort((left, right) => left - right)
+        .slice(0, 24);
+
+      [false, true].forEach((inverted) => {
+        periodCandidates.forEach((period) => {
+          const bytes = [];
+          let validStops = 0;
+          let frames = 0;
+          let ignoreUntil = -1;
+          let previous = inverted ? "0" : "1";
+          signal.transitions.forEach((transition) => {
+            const current = inverted ? (transition.value === "0" ? "1" : "0") : transition.value;
+            if (transition.time < ignoreUntil || previous !== "1" || current !== "0") {
+              previous = current;
+              return;
+            }
+            let value = 0;
+            for (let bit = 0; bit < 8; bit += 1) {
+              const sampled = getVcdValueAt(signal.transitions, transition.time + period * (1.5 + bit));
+              const normalized = inverted ? (sampled === "0" ? "1" : "0") : sampled;
+              if (normalized === "1") value |= 1 << bit;
+            }
+            const stop = getVcdValueAt(signal.transitions, transition.time + period * 9.5);
+            const normalizedStop = inverted ? (stop === "0" ? "1" : "0") : stop;
+            frames += 1;
+            if (normalizedStop === "1") validStops += 1;
+            bytes.push(value);
+            ignoreUntil = transition.time + period * 9.8;
+            previous = current;
+          });
+          if (bytes.length < 4 || validStops / Math.max(1, frames) < 0.6) {
+            return;
+          }
+          const label = `UART ${signal.name} period=${period}${inverted ? " inverted" : ""}`;
+          collectSignalBufferDecodes(Buffer.from(bytes), label, candidates);
+          attempts.push({ signal: signal.name, period, inverted, frames: bytes.length, validStops });
+        });
+      });
+    });
+  return attempts;
+}
+
+function collectI2cCandidates(signals, candidates) {
+  const attempts = [];
+  const scalar = signals.filter((signal) => signal.width === 1 && signal.transitions.length >= 8).slice(0, 12);
+  scalar.forEach((clock) => {
+    scalar.forEach((data) => {
+      if (clock.symbol === data.symbol) return;
+      const preferred =
+        /(?:scl|clock|clk)/i.test(clock.name) && /(?:sda|data)/i.test(data.name)
+          ? 2
+          : /(?:scl|clock|clk|sda|data)/i.test(`${clock.name} ${data.name}`)
+            ? 1
+            : 0;
+      const bits = [];
+      let previous = clock.transitions[0]?.value || "0";
+      clock.transitions.slice(1).forEach((transition) => {
+        if (previous === "0" && transition.value === "1") {
+          const value = getVcdValueAt(data.transitions, transition.time);
+          if (value === "0" || value === "1") bits.push(value);
+        }
+        previous = transition.value;
+      });
+      if (bits.length < 36) return;
+      const stream = bits.join("");
+      for (let offset = 0; offset < 9; offset += 1) {
+        const bytes = [];
+        const acks = [];
+        for (let index = offset; index + 9 <= stream.length; index += 9) {
+          bytes.push(parseInt(stream.slice(index, index + 8), 2));
+          acks.push(stream[index + 8]);
+        }
+        if (bytes.length < 4) continue;
+        const ackRatio = acks.filter((value) => value === "0").length / acks.length;
+        if (!preferred && ackRatio < 0.45) continue;
+        const label = `I2C ${clock.name}/${data.name} offset=${offset} ack=${ackRatio.toFixed(2)}`;
+        collectSignalBufferDecodes(Buffer.from(bytes), label, candidates);
+        collectSignalBufferDecodes(Buffer.from(bytes.slice(1)), `${label} data-only`, candidates);
+        attempts.push({ clock: clock.name, data: data.name, offset, bytes: bytes.length, ackRatio });
+      }
+    });
+  });
+  return attempts
+    .sort((left, right) => right.ackRatio - left.ackRatio)
+    .slice(0, 80);
+}
+
 function analyzeVcdText(text) {
   const signals = parseVcdSignals(text);
   const scalarSignals = signals.filter((signal) => signal.width === 1 && signal.transitions.length >= 2);
@@ -1883,10 +1988,14 @@ function analyzeVcdText(text) {
     });
   });
 
+  const uartAttempts = collectUartCandidates(scalarSignals, candidates);
+  const i2cAttempts = collectI2cCandidates(scalarSignals, candidates);
   return {
     signalCount: signals.length,
     samples,
-    candidates: rankSignalCandidates(candidates),
+    uartAttempts,
+    i2cAttempts,
+    candidates: rankSignalCandidates(candidates, 60),
   };
 }
 
@@ -1980,6 +2089,45 @@ function analyzeBinaryCsv(text) {
   };
 }
 
+function analyzeCanLog(text) {
+  const frames = [];
+  String(text || "")
+    .split(/\r?\n/)
+    .slice(0, 50000)
+    .forEach((line) => {
+      const candump = /(?:\([^)]*\)\s+)?(?:\S+\s+)?([0-9a-fA-F]{3,8})#([0-9a-fA-F]{2,64})\b/.exec(line);
+      if (candump) {
+        frames.push({ id: candump[1].toUpperCase(), data: Buffer.from(candump[2], "hex") });
+        return;
+      }
+      const asc = /^\s*(?:\d+(?:\.\d+)?)\s+\S+\s+([0-9a-fA-F]{3,8})\s+(?:Rx|Tx)\s+d\s+\d+\s+((?:[0-9a-fA-F]{2}\s+){0,63}[0-9a-fA-F]{2})/i.exec(line);
+      if (asc) {
+        frames.push({ id: asc[1].toUpperCase(), data: Buffer.from(asc[2].replace(/\s+/g, ""), "hex") });
+      }
+    });
+  if (frames.length < 2) return null;
+
+  const byId = new Map();
+  frames.forEach((frame) => {
+    const list = byId.get(frame.id) || [];
+    list.push(frame.data);
+    byId.set(frame.id, list);
+  });
+  const candidates = [];
+  byId.forEach((parts, id) => {
+    collectSignalBufferDecodes(Buffer.concat(parts), `CAN id=0x${id}`, candidates);
+  });
+  collectSignalBufferDecodes(Buffer.concat(frames.map((frame) => frame.data)), "CAN chronological payloads", candidates);
+  return {
+    kind: "can-log",
+    frameCount: frames.length,
+    ids: Array.from(byId.entries())
+      .map(([id, parts]) => ({ id, frames: parts.length, bytes: parts.reduce((sum, part) => sum + part.length, 0) }))
+      .sort((left, right) => right.bytes - left.bytes),
+    candidates: rankSignalCandidates(candidates, 60),
+  };
+}
+
 function analyzeSignalArtifact(buffer, extension) {
   const text = decodeBufferAsText(buffer);
   if (extension === ".vcd" || /\$enddefinitions\s+\$end/i.test(text)) {
@@ -1988,6 +2136,9 @@ function analyzeSignalArtifact(buffer, extension) {
   if (extension === ".csv") {
     const report = analyzeBinaryCsv(text);
     return report ? { kind: "logic-csv", ...report } : null;
+  }
+  if ([".asc", ".log", ".txt"].includes(extension) || /[0-9a-fA-F]{3,8}#[0-9a-fA-F]{4,}/.test(text)) {
+    return analyzeCanLog(text);
   }
   return null;
 }
@@ -2002,6 +2153,21 @@ function buildSignalReport(fileName, report) {
       report.samples.slice(0, 80).map((item) => `${item.clock} -> ${item.data} ${item.edge} bits=${item.bitCount}`),
       "(none)",
     );
+    appendReportSection(
+      lines,
+      "UART attempts",
+      report.uartAttempts.slice(0, 80).map((item) => `${item.signal} period=${item.period} inverted=${item.inverted} frames=${item.frames} stops=${item.validStops}`),
+      "(none)",
+    );
+    appendReportSection(
+      lines,
+      "I2C attempts",
+      report.i2cAttempts.slice(0, 80).map((item) => `${item.clock}/${item.data} offset=${item.offset} bytes=${item.bytes} ack=${item.ackRatio.toFixed(2)}`),
+      "(none)",
+    );
+  } else if (report.kind === "can-log") {
+    lines.push(`frames: ${report.frameCount}`, `ids: ${report.ids.length}`, "");
+    appendReportSection(lines, "CAN IDs", report.ids.map((item) => `0x${item.id} frames=${item.frames} bytes=${item.bytes}`), "(none)");
   } else {
     lines.push(`rows: ${report.rowCount}`, `binary-columns: ${report.binaryColumns.join(", ")}`, `logic-formulas: ${report.formulaCount}`, "");
   }
@@ -2065,6 +2231,7 @@ function isLikelyTextExtension(extension) {
     ".log",
     ".csv",
     ".vcd",
+    ".asc",
     ".json",
     ".yaml",
     ".yml",
@@ -3487,6 +3654,7 @@ function parseTcpSegment(buffer) {
     protocol: "tcp",
     srcPort,
     dstPort,
+    sequence: buffer.readUInt32BE(4),
     payload: buffer.subarray(headerLength),
     flags: buffer[13],
   };
@@ -3504,6 +3672,18 @@ function parseUdpDatagram(buffer) {
     srcPort,
     dstPort,
     payload: buffer.subarray(8, length),
+  };
+}
+
+function parseIcmpMessage(buffer) {
+  if (buffer.length < 4) return null;
+  return {
+    protocol: "icmp",
+    type: buffer[0],
+    code: buffer[1],
+    identifier: buffer.length >= 6 ? buffer.readUInt16BE(4) : null,
+    sequence: buffer.length >= 8 ? buffer.readUInt16BE(6) : null,
+    payload: buffer.subarray(buffer.length >= 8 ? 8 : 4),
   };
 }
 
@@ -3527,6 +3707,8 @@ function parseIpPacket(buffer) {
       ipVersion: 4,
       srcIp: formatIPv4(buffer, 12),
       dstIp: formatIPv4(buffer, 16),
+      ipId: buffer.readUInt16BE(4),
+      ttl: buffer[8],
     };
     if (protocol === 6) {
       const tcp = parseTcpSegment(payload);
@@ -3535,6 +3717,10 @@ function parseIpPacket(buffer) {
     if (protocol === 17) {
       const udp = parseUdpDatagram(payload);
       return udp ? { ...base, ...udp } : null;
+    }
+    if (protocol === 1) {
+      const icmp = parseIcmpMessage(payload);
+      return icmp ? { ...base, ...icmp } : null;
     }
     return { ...base, protocol: String(protocol), payload };
   }
@@ -4049,6 +4235,53 @@ function normalizeSessionKey(packet) {
   return [left, right].sort().join(" <-> ");
 }
 
+function collectTrafficCandidateResults(buffer, label) {
+  if (!buffer || buffer.length < 4 || buffer.length > 2 * 1024 * 1024) return [];
+  const results = [];
+  const direct = decodeBufferAsText(buffer).replace(/\0/g, "").trim();
+  const directFlags = findFlagCandidates(direct, label);
+  const printable = scorePrintableRatio(buffer);
+  const variedReadableText =
+    printable > 0.88 && direct.length >= 8 && /[A-Za-z0-9]{4}/.test(direct) && new Set(Array.from(direct)).size >= 4;
+  if (directFlags.length || NATURAL_TEXT_HINT.test(direct) || variedReadableText) {
+    results.push({ label, text: direct.slice(0, MAX_TEXT_BYTES) });
+  }
+  smartDecodeTextContent(buffer).forEach((item) => {
+    if (findFlagCandidates(item.value, `${label} (${item.label})`).length || NATURAL_TEXT_HINT.test(item.value)) {
+      results.push({ label: `${label} -> ${item.label}`, text: item.value });
+    }
+  });
+  const deduped = new Map();
+  results.forEach((item) => deduped.set(`${item.label}@@${item.text}`, item));
+  return Array.from(deduped.values()).slice(0, 24);
+}
+
+function reassembleDirectionalChunks(chunks) {
+  const ordered = chunks
+    .slice()
+    .sort((left, right) =>
+      Number.isFinite(left.sequence) && Number.isFinite(right.sequence) ? left.sequence - right.sequence : left.frameIndex - right.frameIndex,
+    );
+  if (!ordered.length || !ordered.every((item) => Number.isFinite(item.sequence))) {
+    return Buffer.concat(ordered.map((item) => item.payload)).subarray(0, 2 * 1024 * 1024);
+  }
+  const parts = [];
+  let expectedSequence = null;
+  ordered.forEach((item) => {
+    if (expectedSequence === null || item.sequence >= expectedSequence) {
+      parts.push(item.payload);
+      expectedSequence = item.sequence + item.payload.length;
+      return;
+    }
+    const overlap = expectedSequence - item.sequence;
+    if (overlap < item.payload.length) {
+      parts.push(item.payload.subarray(overlap));
+      expectedSequence += item.payload.length - overlap;
+    }
+  });
+  return Buffer.concat(parts).subarray(0, 2 * 1024 * 1024);
+}
+
 function analyzeTrafficBuffer(buffer) {
   const frames = parseCaptureFrames(buffer);
   const summary = {
@@ -4062,6 +4295,8 @@ function analyzeTrafficBuffer(buffer) {
     tokens: [],
     sessions: [],
     exportedObjects: [],
+    streamObjects: [],
+    covertCandidates: [],
     usbHid: {
       frameCount: 0,
       keyboardText: "",
@@ -4076,8 +4311,12 @@ function analyzeTrafficBuffer(buffer) {
 
   summary.usbHid = analyzeUsbHidFrames(frames);
   const sessions = new Map();
+  const icmpPayloads = new Map();
+  const ipIds = [];
+  const ttls = [];
+  const dnsLabels = [];
 
-  frames.forEach((frame) => {
+  frames.forEach((frame, frameIndex) => {
     const packet = parseFramePayload(frame.data, frame.linkType);
     if (!packet || !packet.payload) {
       return;
@@ -4091,10 +4330,27 @@ function analyzeTrafficBuffer(buffer) {
         endpoints: `${packet.srcIp}:${packet.srcPort} -> ${packet.dstIp}:${packet.dstPort}`,
         packets: 0,
         bytes: 0,
+        directions: new Map(),
       };
       current.packets += 1;
       current.bytes += packet.payload.length;
+      if (packet.payload.length) {
+        const direction = `${packet.srcIp}:${packet.srcPort} -> ${packet.dstIp}:${packet.dstPort}`;
+        const chunks = current.directions.get(direction) || [];
+        chunks.push({ frameIndex, sequence: packet.sequence, payload: packet.payload });
+        current.directions.set(direction, chunks);
+      }
       sessions.set(sessionKey, current);
+    }
+    if (packet.ipVersion === 4) {
+      ipIds.push(packet.ipId & 0xff);
+      ttls.push(packet.ttl & 0xff);
+    }
+    if (packet.protocol === "icmp" && packet.payload.length) {
+      const key = `${packet.srcIp} -> ${packet.dstIp} type=${packet.type} code=${packet.code}`;
+      const parts = icmpPayloads.get(key) || [];
+      parts.push(packet.payload);
+      icmpPayloads.set(key, parts);
     }
 
     if (packet.protocol === "udp" && (packet.srcPort === 53 || packet.dstPort === 53)) {
@@ -4102,6 +4358,11 @@ function analyzeTrafficBuffer(buffer) {
       if (dns) {
         summary.dnsQueries.push(...dns.questions);
         summary.dnsAnswers.push(...dns.answers);
+        dns.questions.forEach((question) => {
+          const name = question.replace(/\s+\[\d+\]$/, "");
+          const firstLabel = name.split(".")[0];
+          if (firstLabel) dnsLabels.push(firstLabel);
+        });
       }
       return;
     }
@@ -4169,9 +4430,45 @@ function analyzeTrafficBuffer(buffer) {
   summary.tlsServerNames = dedupeStrings(summary.tlsServerNames).slice(0, 20);
   summary.cookies = dedupeStrings(summary.cookies).slice(0, 12);
   summary.tokens = dedupeStrings(summary.tokens).slice(0, 12);
+  const candidateResults = [];
+  const streamObjects = [];
+  sessions.forEach((session) => {
+    session.directions.forEach((chunks, direction) => {
+      const content = reassembleDirectionalChunks(chunks);
+      if (content.length < 4) return;
+      const useful = collectTrafficCandidateResults(content, `stream ${direction}`);
+      candidateResults.push(...useful);
+      if (useful.length || detectMagic(content)) {
+        streamObjects.push({
+          name: `stream-${String(streamObjects.length + 1).padStart(3, "0")}${scorePrintableRatio(content) > 0.82 ? ".txt" : ".bin"}`,
+          content,
+        });
+      }
+    });
+  });
+  icmpPayloads.forEach((parts, key) => {
+    candidateResults.push(...collectTrafficCandidateResults(Buffer.concat(parts), `ICMP payload ${key}`));
+  });
+  if (dnsLabels.length >= 2) {
+    candidateResults.push(...collectTrafficCandidateResults(Buffer.from(dnsLabels.join(""), "utf8"), "DNS first-label stream"));
+  }
+  if (ipIds.length >= 4 && new Set(ipIds).size >= 3) {
+    candidateResults.push(...collectTrafficCandidateResults(Buffer.from(ipIds), "IPv4 ID low-byte stream"));
+  }
+  if (ttls.length >= 4 && new Set(ttls).size >= 3) {
+    candidateResults.push(...collectTrafficCandidateResults(Buffer.from(ttls), "IPv4 TTL stream"));
+  }
+  summary.covertCandidates = dedupeStrings(candidateResults.map((item) => `${item.label}@@${item.text}`))
+    .map((entry) => {
+      const separator = entry.indexOf("@@");
+      return { label: entry.slice(0, separator), text: entry.slice(separator + 2) };
+    })
+    .slice(0, 40);
+  summary.streamObjects = streamObjects.slice(0, 24);
   summary.sessions = Array.from(sessions.values())
     .sort((left, right) => right.bytes - left.bytes)
-    .slice(0, 12);
+    .slice(0, 12)
+    .map(({ directions, ...session }) => session);
   summary.sessionCount = sessions.size;
 
   return summary;
@@ -4216,6 +4513,10 @@ function buildTrafficSummaryText(fileName, summary) {
     lines.push("# SESSIONS");
     summary.sessions.forEach((item) => lines.push(`${item.protocol} ${item.endpoints} packets=${item.packets} bytes=${item.bytes}`));
     lines.push("");
+  }
+  if (summary.covertCandidates.length) {
+    lines.push("# COVERT / REASSEMBLED CANDIDATES");
+    summary.covertCandidates.forEach((item) => lines.push(`${item.label}\n${item.text}\n`));
   }
   if (summary.usbHid?.frameCount) {
     lines.push("# USB-HID");
@@ -4633,6 +4934,140 @@ function parseElfBuildId(buffer, sections, littleEndian) {
   return "";
 }
 
+const SYSCALL_NAMES = {
+  62: {
+    0: "read", 1: "write", 2: "open", 3: "close", 9: "mmap", 10: "mprotect", 11: "munmap", 15: "rt_sigreturn",
+    39: "getpid", 59: "execve", 60: "exit", 231: "exit_group", 257: "openat", 322: "execveat",
+  },
+  183: {
+    56: "openat", 57: "close", 63: "read", 64: "write", 93: "exit", 94: "exit_group", 221: "execve", 222: "mmap", 226: "mprotect",
+  },
+  3: { 1: "exit", 3: "read", 4: "write", 5: "open", 6: "close", 11: "execve", 125: "mprotect", 192: "mmap2", 252: "exit_group" },
+};
+
+function getSyscallLabel(machine, number) {
+  const name = SYSCALL_NAMES[machine]?.[number];
+  return name ? `${number} (${name})` : String(number);
+}
+
+function analyzeSeccompBpf(buffer, sections, machine, littleEndian) {
+  const validCodes = new Set([0x00, 0x04, 0x05, 0x06, 0x07, 0x0c, 0x15, 0x20, 0x25, 0x35, 0x45, 0x54, 0x74, 0x80, 0x87]);
+  const policies = [];
+  sections
+    .filter((section) => (section.flags & 4n) === 0n && /(?:rodata|data|bpf|seccomp)/i.test(section.name))
+    .forEach((section) => {
+      const start = toSafeNumber(section.offset);
+      const size = toSafeNumber(section.size);
+      if (start === null || size === null || size < 32 || start + size > buffer.length) return;
+      const end = start + Math.min(size, 2 * 1024 * 1024);
+      for (let offset = start; offset + 32 <= end; offset += 8) {
+        const instructions = [];
+        let cursor = offset;
+        while (cursor + 8 <= end && instructions.length < 80) {
+          const code = readUInt16(buffer, cursor, littleEndian);
+          const jt = buffer[cursor + 2];
+          const jf = buffer[cursor + 3];
+          const k = readUInt32(buffer, cursor + 4, littleEndian);
+          if (!validCodes.has(code)) break;
+          instructions.push({ code, jt, jf, k });
+          cursor += 8;
+          if (code === 0x06 && instructions.length >= 4) {
+            const nextCode = cursor + 2 <= end ? readUInt16(buffer, cursor, littleEndian) : -1;
+            if (!validCodes.has(nextCode)) break;
+          }
+        }
+        const loadsSyscallNumber = instructions.some((item) => item.code === 0x20 && item.k === 0);
+        const comparisons = instructions.filter((item) => item.code === 0x15);
+        const returns = instructions.filter((item) => item.code === 0x06);
+        if (!loadsSyscallNumber || comparisons.length < 1 || returns.length < 2) continue;
+        const key = `${section.name}:${offset}`;
+        if (policies.some((item) => item.key === key || item.instructions.map((entry) => `${entry.code}:${entry.k}`).join("|") === instructions.map((entry) => `${entry.code}:${entry.k}`).join("|"))) {
+          continue;
+        }
+        const syscallNumbers = dedupeStrings(comparisons.map((item) => String(item.k)))
+          .map(Number)
+          .filter((number) => number < 2048);
+        policies.push({
+          key,
+          section: section.name,
+          offset,
+          instructions,
+          syscalls: syscallNumbers.map((number) => getSyscallLabel(machine, number)),
+          returns: dedupeStrings(
+            returns.map((item) => {
+              if (item.k === 0x7fff0000) return "ALLOW";
+              if ((item.k & 0xffff0000) === 0x00050000) return `ERRNO(${item.k & 0xffff})`;
+              if (item.k === 0) return "KILL";
+              return formatHex(item.k);
+            }),
+          ),
+        });
+        if (policies.length >= 8) return;
+      }
+    });
+  return policies;
+}
+
+function parseElfCoreReport(buffer, programHeaders, littleEndian, is64, machine) {
+  const align4 = (value) => (value + 3) & ~3;
+  const notes = [];
+  const registers = {};
+  const signals = [];
+  programHeaders
+    .filter((header) => header.type === 4 && header.offset !== null && header.fileSize)
+    .forEach((header) => {
+      let cursor = header.offset;
+      const end = Math.min(buffer.length, header.offset + header.fileSize);
+      while (cursor + 12 <= end && notes.length < 120) {
+        const nameSize = readUInt32(buffer, cursor, littleEndian);
+        const descSize = readUInt32(buffer, cursor + 4, littleEndian);
+        const noteType = readUInt32(buffer, cursor + 8, littleEndian);
+        const nameStart = cursor + 12;
+        const descStart = nameStart + align4(nameSize);
+        const next = descStart + align4(descSize);
+        if (nameSize > 1024 || descSize > 16 * 1024 * 1024 || next > end) break;
+        const name = buffer.subarray(nameStart, nameStart + nameSize).toString("ascii").replace(/\0/g, "");
+        const desc = buffer.subarray(descStart, descStart + descSize);
+        const printable = extractPrintableSegments(desc.toString("latin1"), 4, 12);
+        const typeNames = { 1: "NT_PRSTATUS", 3: "NT_PRPSINFO", 6: "NT_AUXV", 0x46494c45: "NT_FILE", 0x53494749: "NT_SIGINFO" };
+        notes.push({ name, type: typeNames[noteType] || formatHex(noteType), size: descSize, printable });
+        if ((noteType === 0x53494749 || noteType === 1) && desc.length >= 4) {
+          const signal = readUInt32(desc, noteType === 1 && desc.length >= 16 ? 12 : 0, littleEndian);
+          if (signal > 0 && signal < 128) signals.push(signal);
+        }
+        if (noteType === 1 && is64 && machine === 62 && desc.length >= 112 + 27 * 8) {
+          const base = 112;
+          const readRegister = (index) => readBigUIntValue(desc, base + index * 8, littleEndian);
+          Object.assign(registers, {
+            RIP: readRegister(16),
+            RSP: readRegister(19),
+            RBP: readRegister(4),
+            RAX: readRegister(10),
+            RDI: readRegister(14),
+            RSI: readRegister(13),
+            RDX: readRegister(12),
+          });
+        }
+        cursor = next;
+      }
+    });
+  const mappings = programHeaders
+    .filter((header) => header.type === 1)
+    .map((header) => ({
+      address: header.virtualAddress,
+      memorySize: header.memorySize,
+      fileSize: header.fileSize,
+      flags: header.flags,
+    }))
+    .slice(0, 80);
+  return {
+    notes,
+    signals: dedupeStrings(signals.map(String)).map(Number),
+    registers,
+    mappings,
+  };
+}
+
 function collectElfGlibcVersions(buffer) {
   const sample = buffer.subarray(0, Math.min(buffer.length, 16 * 1024 * 1024));
   return dedupeStrings(extractAsciiStrings(sample, 7, 12000).filter((value) => /^GLIBC_\d+(?:\.\d+)*$/.test(value))).sort((left, right) =>
@@ -4850,6 +5285,15 @@ function collectElfPwnSurface(buffer, sections, symbolTables, relocations, progr
       "seccomp / syscall constraint",
       `Constraint imports: ${ioProfile.constraints.filter((name) => name === "seccomp" || name === "prctl").join(", ")}`,
       "Recover the allowed syscall policy before choosing shellcode, ORW, or command-execution paths.",
+    );
+  }
+  if (context.seccompPolicies?.length) {
+    addHypothesis(
+      "seccomp-bpf",
+      "high",
+      "recovered seccomp BPF policy",
+      `Recovered ${context.seccompPolicies.length} classic-BPF candidate(s); compared syscalls: ${context.seccompPolicies.flatMap((item) => item.syscalls).slice(0, 12).join(", ")}`,
+      "Verify jump direction and return actions before choosing shellcode or ORW syscalls.",
     );
   }
   if (ioProfile.network.length) {
@@ -5292,6 +5736,8 @@ function parseElfBinary(buffer) {
   const buildId = parseElfBuildId(buffer, sections, littleEndian);
   const glibcVersions = collectElfGlibcVersions(buffer);
   const role = getElfRole(type, interpreter, soname);
+  const seccompPolicies = analyzeSeccompBpf(buffer, sections, machine, littleEndian);
+  const coreReport = type === 4 ? parseElfCoreReport(buffer, programHeaders, littleEndian, is64, machine) : null;
   const pwnSurface = collectElfPwnSurface(buffer, sections, symbolTables, relocations, programHeaders, {
     type,
     machine,
@@ -5302,6 +5748,7 @@ function parseElfBinary(buffer) {
     buildId,
     glibcVersions,
     littleEndian,
+    seccompPolicies,
   });
 
   return {
@@ -5326,6 +5773,8 @@ function parseElfBinary(buffer) {
     role,
     buildId,
     glibcVersions,
+    seccompPolicies,
+    coreReport,
     commentPreview,
     symbolTables: symbolTables.map((table) => ({
       name: table.name,
@@ -5385,6 +5834,26 @@ function buildElfSummaryText(fileName, report) {
   if (report.commentPreview.length) {
     lines.push("# COMMENT");
     report.commentPreview.forEach((item) => lines.push(item));
+    lines.push("");
+  }
+  if (report.seccompPolicies.length) {
+    lines.push("# SECCOMP BPF");
+    report.seccompPolicies.forEach((policy, index) => {
+      lines.push(`policy ${index + 1}: ${policy.section}+${formatHex(policy.offset)}`);
+      lines.push(`syscalls: ${policy.syscalls.join(", ") || "none recovered"}`);
+      lines.push(`returns: ${policy.returns.join(", ") || "none recovered"}`);
+    });
+    lines.push("");
+  }
+  if (report.coreReport) {
+    lines.push("# CORE DUMP");
+    lines.push(`notes: ${report.coreReport.notes.length}`);
+    lines.push(`signals: ${report.coreReport.signals.join(", ") || "unknown"}`);
+    const registerEntries = Object.entries(report.coreReport.registers);
+    if (registerEntries.length) {
+      lines.push(`registers: ${registerEntries.map(([name, value]) => `${name}=${formatHex(value)}`).join(", ")}`);
+    }
+    lines.push(`load-mappings: ${report.coreReport.mappings.length}`);
     lines.push("");
   }
   if (report.symbolTables.length) {
@@ -5473,6 +5942,65 @@ function buildElfSummaryText(fileName, report) {
     });
     lines.push("");
   }
+  return `${lines.join("\n")}\n`;
+}
+
+function buildSeccompReport(fileName, policies) {
+  const lines = ["# SECCOMP CLASSIC-BPF REPORT", `file: ${fileName}`, ""];
+  policies.forEach((policy, index) => {
+    lines.push(`## POLICY ${index + 1}`);
+    lines.push(`location: ${policy.section}+${formatHex(policy.offset)}`);
+    lines.push(`compared-syscalls: ${policy.syscalls.join(", ") || "none recovered"}`);
+    lines.push(`return-actions: ${policy.returns.join(", ") || "none recovered"}`);
+    lines.push("");
+    policy.instructions.forEach((instruction, instructionIndex) => {
+      lines.push(
+        `${String(instructionIndex).padStart(2, "0")}: code=${formatHex(instruction.code)} jt=${instruction.jt} jf=${instruction.jf} k=${formatHex(
+          instruction.k,
+        )}`,
+      );
+    });
+    lines.push("");
+  });
+  lines.push("Verify jump direction and architecture-specific syscall numbers before selecting an exploitation path.", "");
+  return `${lines.join("\n")}\n`;
+}
+
+function buildCoreReport(fileName, report) {
+  const lines = ["# ELF CORE DUMP REPORT", `file: ${fileName}`, ""];
+  lines.push(`signals: ${report.signals.join(", ") || "unknown"}`);
+  lines.push("");
+  lines.push("# REGISTERS");
+  const registerEntries = Object.entries(report.registers);
+  if (registerEntries.length) {
+    registerEntries.forEach(([name, value]) => lines.push(`${name}: ${formatHex(value)}`));
+  } else {
+    lines.push("No supported register set recovered.");
+  }
+  lines.push("");
+  lines.push("# NOTES");
+  report.notes.forEach((note, index) => {
+    lines.push(`${index + 1}. ${note.name || "unknown"} ${note.type} size=${note.size}`);
+    if (note.printable.length) {
+      lines.push(`   text: ${note.printable.join(" | ")}`);
+    }
+  });
+  if (!report.notes.length) {
+    lines.push("No PT_NOTE entries recovered.");
+  }
+  lines.push("");
+  lines.push("# LOAD MAPPINGS");
+  report.mappings.forEach((mapping, index) => {
+    lines.push(
+      `${index + 1}. address=${formatHex(mapping.address)} memory=${formatHex(mapping.memorySize)} file=${formatHex(mapping.fileSize)} flags=${formatHex(
+        mapping.flags,
+      )}`,
+    );
+  });
+  if (!report.mappings.length) {
+    lines.push("No PT_LOAD mappings recovered.");
+  }
+  lines.push("");
   return `${lines.join("\n")}\n`;
 }
 
@@ -6181,7 +6709,7 @@ async function buildArtifactSignals(filePath) {
   let mp4Report = null;
   let pngDimensionReport = null;
   let signalReport = null;
-  if ([".vcd", ".csv"].includes(extension)) {
+  if ([".vcd", ".csv", ".asc", ".log", ".txt"].includes(extension)) {
     try {
       signalReport = analyzeSignalArtifact(buffer, extension);
     } catch (_error) {
@@ -6499,6 +7027,19 @@ async function buildArtifactSignals(filePath) {
       artifact.highlights.push("\u53d1\u73b0 Cookie / Token / Authorization \u7c7b\u4fe1\u606f\u3002");
       artifact.keywords.push("cookie", "session");
     }
+    if (trafficSummary?.covertCandidates?.length) {
+      artifact.highlights.push(`流量重组/隐写命中 ${trafficSummary.covertCandidates.length} 个可读候选。`);
+      artifact.keywords.push("covert", "reassembly", "icmp", "dns");
+      const covertFlags = trafficSummary.covertCandidates.flatMap((item) =>
+        findFlagCandidates(item.text, `${artifact.name} (${item.label})`),
+      );
+      artifact.flagCandidates = dedupeStrings(
+        artifact.flagCandidates.map((item) => `${item.value}@@${item.source}`).concat(covertFlags.map((item) => `${item.value}@@${item.source}`)),
+      ).map((entry) => {
+        const [value, source] = entry.split("@@");
+        return { value, source };
+      });
+    }
     if (trafficSummary?.usbHid?.keyboardText) {
       artifact.highlights.push(`USB HID \u952e\u76d8\u8fd8\u539f ${trafficSummary.usbHid.keyEvents.length} \u4e2a\u6309\u952e\u4e8b\u4ef6\u3002`);
       artifact.keywords.push("usb", "hid", "keyboard", "forensic");
@@ -6672,6 +7213,25 @@ async function buildArtifactSignals(filePath) {
           const symbolCount = elfReport.symbolTables.reduce((sum, table) => sum + table.count, 0);
           artifact.highlights.push(`ELF \u7b26\u53f7 ${symbolCount} \u4e2a\uff0c\u91cd\u5b9a\u4f4d\u6bb5 ${elfReport.relocations.length} \u4e2a\u3002`);
         }
+        if (elfReport.seccompPolicies.length) {
+          artifact.highlights.push(
+            `seccomp BPF \u5019\u9009 ${elfReport.seccompPolicies.length} \u7ec4\uff1bsyscall=${dedupeStrings(
+              elfReport.seccompPolicies.flatMap((item) => item.syscalls),
+            )
+              .slice(0, 8)
+              .join("/")}`,
+          );
+          artifact.keywords.push("seccomp", "sandbox", "bpf", "syscall");
+        }
+        if (elfReport.coreReport) {
+          const registerEntries = Object.entries(elfReport.coreReport.registers);
+          artifact.highlights.push(
+            `Core dump\uff1anotes=${elfReport.coreReport.notes.length}\uff1bsignal=${elfReport.coreReport.signals.join("/") || "?"}\uff1b${
+              registerEntries.length ? registerEntries.slice(0, 3).map(([name, value]) => `${name}=${formatHex(value)}`).join(" ") : "registers=?"
+            }`,
+          );
+          artifact.keywords.push("core dump", "crash", "registers", "forensic");
+        }
       }
       artifact.actions.push({
         id: "extract-binary-clues",
@@ -6732,13 +7292,22 @@ async function buildArtifactSignals(filePath) {
     if (signalReport) {
       artifact.summary =
         signalReport.kind === "vcd"
-          ? "VCD 逻辑分析仪波形，可自动尝试常见时钟边沿、位序和轻量编码变换。"
-          : "二值逻辑 CSV，可自动提取列位流并尝试常见门电路组合。";
-      artifact.keywords.push("hardware", "logic", signalReport.kind, signalReport.kind === "vcd" ? "spi" : "csv");
+          ? "VCD 逻辑分析仪波形，可自动尝试 SPI、UART、I2C、常见位序和轻量编码变换。"
+          : signalReport.kind === "can-log"
+            ? "CAN/candump/ASC 报文日志，可按仲裁 ID 聚合载荷并自动检查编码层。"
+            : "二值逻辑 CSV，可自动提取列位流并尝试常见门电路组合。";
+      artifact.keywords.push(
+        "hardware",
+        "logic",
+        signalReport.kind,
+        signalReport.kind === "vcd" ? "spi" : signalReport.kind === "can-log" ? "can" : "csv",
+      );
       artifact.highlights.push(
         signalReport.kind === "vcd"
-          ? `VCD 信号 ${signalReport.signalCount} 个，已尝试 ${signalReport.samples.length} 组边沿采样。`
-          : `逻辑 CSV ${signalReport.rowCount} 行，已尝试 ${signalReport.formulaCount} 个位流/门电路表达式。`,
+          ? `VCD 信号 ${signalReport.signalCount} 个；SPI ${signalReport.samples.length} 组、UART ${signalReport.uartAttempts.length} 组、I2C ${signalReport.i2cAttempts.length} 组候选。`
+          : signalReport.kind === "can-log"
+            ? `CAN 报文 ${signalReport.frameCount} 帧，仲裁 ID ${signalReport.ids.length} 个。`
+            : `逻辑 CSV ${signalReport.rowCount} 行，已尝试 ${signalReport.formulaCount} 个位流/门电路表达式。`,
       );
       if (signalReport.candidates.length) {
         artifact.highlights.push(`信号分析命中 ${signalReport.candidates.length} 个可读候选。`);
@@ -7759,6 +8328,14 @@ function extractBinaryClues(filePath, outputRoot) {
       });
       createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-elf-relocations.txt`, `${relocationLines.join("\n")}\n`));
     }
+    if (elfReport.seccompPolicies.length) {
+      createdFiles.push(
+        writeGeneratedFile(outputRoot, `${baseName}-seccomp-bpf.txt`, buildSeccompReport(path.basename(filePath), elfReport.seccompPolicies)),
+      );
+    }
+    if (elfReport.coreReport) {
+      createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-core-report.txt`, buildCoreReport(path.basename(filePath), elfReport.coreReport)));
+    }
     if (elfReport.pwnSurface) {
       const checksec = elfReport.pwnSurface.checksec;
       const checksecLines = [
@@ -7834,7 +8411,8 @@ function extractBinaryClues(filePath, outputRoot) {
       }
     }
     return {
-      message: "\u5df2\u63d0\u53d6 ELF \u5934\u3001checksec\u3001Pwn \u98ce\u9669\u51fd\u6570\u3001ROP gadget\u3001\u52a8\u6001\u4f9d\u8d56\u3001\u7b26\u53f7\u4e0e\u91cd\u5b9a\u4f4d\u7ebf\u7d22\u3002",
+      message:
+        "\u5df2\u63d0\u53d6 ELF \u5934\u3001checksec\u3001Pwn \u98ce\u9669\u51fd\u6570\u3001ROP gadget\u3001seccomp BPF\u3001core dump\u3001\u52a8\u6001\u4f9d\u8d56\u3001\u7b26\u53f7\u4e0e\u91cd\u5b9a\u4f4d\u7ebf\u7d22\u3002",
       createdFiles: dedupeStrings(createdFiles),
     };
   }
@@ -8220,6 +8798,13 @@ function extractTrafficSessions(filePath, outputRoot) {
   summary.exportedObjects.slice(0, MAX_HTTP_OBJECTS).forEach((item) => {
     createdFiles.push(writeGeneratedFile(outputRoot, item.name, item.content));
   });
+  summary.streamObjects.forEach((item) => {
+    createdFiles.push(writeGeneratedFile(outputRoot, item.name, item.content));
+  });
+  if (summary.covertCandidates.length) {
+    const lines = summary.covertCandidates.flatMap((item) => [`# ${item.label}`, item.text, ""]);
+    createdFiles.push(writeGeneratedFile(outputRoot, `${sanitizeSegment(path.parse(filePath).name)}-covert-candidates.txt`, `${lines.join("\n")}\n`));
+  }
   if (summary.usbHid?.keyboardText) {
     createdFiles.push(writeGeneratedFile(outputRoot, `${sanitizeSegment(path.parse(filePath).name)}-usb-keyboard.txt`, `${summary.usbHid.keyboardText}\n`));
   }
@@ -8232,7 +8817,7 @@ function extractTrafficSessions(filePath, outputRoot) {
   }
 
   return {
-    message: "\u5df2\u63d0\u53d6 HTTP / DNS / TLS / USB HID / \u4f1a\u8bdd\u7ebf\u7d22\uff0c\u5e76\u5bfc\u51fa\u53ef\u7ee7\u7eed\u5206\u6790\u7684\u5bf9\u8c61\u3002",
+    message: "已提取 HTTP / DNS / TLS / USB HID / ICMP / 会话重组与隐写候选，并导出可继续分析的对象。",
     createdFiles,
   };
 }
@@ -10002,7 +10587,7 @@ function shouldAutoRun(actionId, artifact) {
     return !structuredReport && artifact.depth < MAX_PIPELINE_DEPTH && !(artifact.flagCandidates || []).length;
   }
   if (actionId === "analyze-signal-data") {
-    return artifact.depth === 0 && [".vcd", ".csv"].includes(artifact.extension);
+    return artifact.depth === 0 && [".vcd", ".csv", ".asc", ".log", ".txt"].includes(artifact.extension);
   }
   if (actionId === "extract-traffic-sessions") {
     return artifact.family === "network" && artifact.depth === 0;

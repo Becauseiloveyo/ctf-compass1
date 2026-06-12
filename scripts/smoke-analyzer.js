@@ -71,6 +71,65 @@ async function runNoFlagCase(root, name, payload) {
   };
 }
 
+async function runReportFlagCase(root, name, payload, expectedFlag, reportSuffix, reportPattern) {
+  const outputRoot = path.join(root, `${name}-out`);
+  const result = await analyzeChallenge(payload, outputRoot);
+  const flags = collectFlags(result);
+  if (!flags.includes(expectedFlag)) {
+    throw new Error(`case ${name}: expected ${expectedFlag}, got ${flags.join(", ") || "no flags"}`);
+  }
+  if (result.pipelineErrors && result.pipelineErrors.length) {
+    throw new Error(`case ${name}: unexpected pipeline errors: ${JSON.stringify(result.pipelineErrors, null, 2)}`);
+  }
+  const generatedPaths = result.pipelineLog.flatMap((entry) => entry.createdArtifacts.map((artifact) => artifact.path));
+  const reportPath = generatedPaths.find((filePath) => filePath.endsWith(reportSuffix));
+  if (!reportPath) {
+    throw new Error(`case ${name}: missing ${reportSuffix}: ${generatedPaths.join(", ")}`);
+  }
+  const report = fs.readFileSync(reportPath, "utf8");
+  if (!reportPattern.test(report)) {
+    throw new Error(`case ${name}: generated report does not contain ${reportPattern}: ${report}`);
+  }
+  return {
+    name,
+    status: result.solver?.status,
+    primaryFlag: result.solver?.primaryFlag?.value,
+    actionsRun: result.solver?.actionsRun,
+    artifacts: result.challenge?.artifactCount,
+  };
+}
+
+async function runCoreDumpCase(root, corePath) {
+  const outputRoot = path.join(root, "elf-core-dump-out");
+  const result = await analyzeChallenge(
+    {
+      title: "synthetic ELF core dump smoke",
+      description: "Recover registers, signal, notes, and load mappings from an ELF core dump.",
+      tags: ["pwn", "core", "forensic"],
+      artifacts: [corePath],
+    },
+    outputRoot,
+  );
+  if (result.pipelineErrors && result.pipelineErrors.length) {
+    throw new Error(`case elf-core-dump: unexpected pipeline errors: ${JSON.stringify(result.pipelineErrors, null, 2)}`);
+  }
+  const generatedPaths = result.pipelineLog.flatMap((entry) => entry.createdArtifacts.map((artifact) => artifact.path));
+  const reportPath = generatedPaths.find((filePath) => filePath.endsWith("-core-report.txt"));
+  if (!reportPath) {
+    throw new Error(`case elf-core-dump: missing core report: ${generatedPaths.join(", ")}`);
+  }
+  const report = fs.readFileSync(reportPath, "utf8");
+  if (!/signals: 11/.test(report) || !/RIP: 0x401337/.test(report) || !/RSP: 0x7fffffffe000/.test(report) || !/NT_PRSTATUS/.test(report)) {
+    throw new Error(`case elf-core-dump: incomplete core report: ${report}`);
+  }
+  return {
+    name: "elf-core-dump",
+    status: result.solver?.status,
+    actionsRun: result.solver?.actionsRun,
+    artifacts: result.challenge?.artifactCount,
+  };
+}
+
 async function runPwnCase(root, elfPath, expectedFlag) {
   const outputRoot = path.join(root, "pwn-elf-static-out");
   const result = await analyzeChallenge(
@@ -113,7 +172,8 @@ async function runPwnCase(root, elfPath, expectedFlag) {
   const capabilityPath = generatedPaths.find((filePath) => filePath.endsWith("-rop-capabilities-lite.txt"));
   const runtimePath = generatedPaths.find((filePath) => filePath.endsWith("-elf-runtime-profile.txt"));
   const memoryPath = generatedPaths.find((filePath) => filePath.endsWith("-pwn-memory-surface.txt"));
-  if (!checksecPath || !surfacePath || !pathsPath || !ioProfilePath || !pwnStringsPath || !gadgetPath || !capabilityPath || !runtimePath || !memoryPath) {
+  const seccompPath = generatedPaths.find((filePath) => filePath.endsWith("-seccomp-bpf.txt"));
+  if (!checksecPath || !surfacePath || !pathsPath || !ioProfilePath || !pwnStringsPath || !gadgetPath || !capabilityPath || !runtimePath || !memoryPath || !seccompPath) {
     throw new Error(`case pwn-elf-static: missing generated pwn reports: ${generatedPaths.join(", ")}`);
   }
   if (!/RELRO: full/.test(fs.readFileSync(checksecPath, "utf8")) || !/gets: critical/.test(fs.readFileSync(surfacePath, "utf8"))) {
@@ -144,6 +204,10 @@ async function runPwnCase(root, elfPath, expectedFlag) {
   const memoryProfile = fs.readFileSync(memoryPath, "utf8");
   if (!/staging: \.dynamic/.test(memoryProfile) || !/executable: \.text/.test(memoryProfile)) {
     throw new Error(`case pwn-elf-static: generated memory surface report is incomplete: ${memoryProfile}`);
+  }
+  const seccompProfile = fs.readFileSync(seccompPath, "utf8");
+  if (!/read/.test(seccompProfile) || !/write/.test(seccompProfile) || !/openat/.test(seccompProfile) || !/ALLOW/.test(seccompProfile) || !/KILL/.test(seccompProfile)) {
+    throw new Error(`case pwn-elf-static: generated seccomp BPF report is incomplete: ${seccompProfile}`);
   }
 
   return {
@@ -465,6 +529,114 @@ function createSpiVcd(filePath, flag) {
   return filePath;
 }
 
+function createUartVcd(filePath, flag) {
+  const bytes = Buffer.from(flag, "utf8");
+  const lines = [
+    "$version CTF Compass UART smoke $end",
+    "$timescale 1ns $end",
+    "$scope module logic $end",
+    "$var wire 1 ! TX $end",
+    "$upscope $end",
+    "$enddefinitions $end",
+    "#0",
+    "1!",
+  ];
+  const bitPeriod = 10;
+  let timestamp = 20;
+  bytes.forEach((byte) => {
+    const frame = [0, ...Array.from({ length: 8 }, (_unused, bit) => (byte >> bit) & 1), 1];
+    frame.forEach((bit) => {
+      lines.push(`#${timestamp}`, `${bit}!`);
+      timestamp += bitPeriod;
+    });
+  });
+  lines.push(`#${timestamp}`, "1!");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${lines.join("\n")}\n`);
+  return filePath;
+}
+
+function createI2cVcd(filePath, flag) {
+  const bytes = Buffer.concat([Buffer.from([0x42]), Buffer.from(flag, "utf8")]);
+  const lines = [
+    "$version CTF Compass I2C smoke $end",
+    "$timescale 1ns $end",
+    "$scope module logic $end",
+    "$var wire 1 ! SCL $end",
+    "$var wire 1 # SDA $end",
+    "$upscope $end",
+    "$enddefinitions $end",
+    "#0",
+    "0!",
+    "1#",
+  ];
+  let timestamp = 10;
+  bytes.forEach((byte) => {
+    const frameBits = [...byte.toString(2).padStart(8, "0").split("").map(Number), 0];
+    frameBits.forEach((bit) => {
+      lines.push(`#${timestamp}`, `${bit}#`);
+      timestamp += 5;
+      lines.push(`#${timestamp}`, "1!");
+      timestamp += 5;
+      lines.push(`#${timestamp}`, "0!");
+      timestamp += 5;
+    });
+  });
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${lines.join("\n")}\n`);
+  return filePath;
+}
+
+function createCanLog(filePath, flag) {
+  const payload = Buffer.from(flag, "utf8");
+  const lines = [];
+  for (let offset = 0; offset < payload.length; offset += 8) {
+    lines.push(`(1710000000.${String(offset).padStart(6, "0")}) can0 321#${payload.subarray(offset, offset + 8).toString("hex").toUpperCase()}`);
+  }
+  return writeText(filePath, `${lines.join("\n")}\n`);
+}
+
+function createIcmpCovertPcap(filePath, flag) {
+  const chunks = [];
+  const payload = Buffer.from(flag, "utf8");
+  for (let offset = 0; offset < payload.length; offset += 7) {
+    const part = payload.subarray(offset, offset + 7);
+    const ethernet = Buffer.alloc(14);
+    ethernet.fill(0x11, 0, 6);
+    ethernet.fill(0x22, 6, 12);
+    ethernet.writeUInt16BE(0x0800, 12);
+    const ip = Buffer.alloc(20);
+    ip[0] = 0x45;
+    ip.writeUInt16BE(20 + 8 + part.length, 2);
+    ip.writeUInt16BE(0x1200 + chunks.length, 4);
+    ip[8] = 64;
+    ip[9] = 1;
+    ip.set([10, 0, 0, 1], 12);
+    ip.set([10, 0, 0, 2], 16);
+    const icmp = Buffer.alloc(8);
+    icmp[0] = 8;
+    icmp.writeUInt16BE(0x4242, 4);
+    icmp.writeUInt16BE(chunks.length, 6);
+    chunks.push(Buffer.concat([ethernet, ip, icmp, part]));
+  }
+  const globalHeader = Buffer.alloc(24);
+  globalHeader.writeUInt32LE(0xa1b2c3d4, 0);
+  globalHeader.writeUInt16LE(2, 4);
+  globalHeader.writeUInt16LE(4, 6);
+  globalHeader.writeUInt32LE(65535, 16);
+  globalHeader.writeUInt32LE(1, 20);
+  const records = chunks.map((packet, index) => {
+    const header = Buffer.alloc(16);
+    header.writeUInt32LE(1710000000 + index, 0);
+    header.writeUInt32LE(packet.length, 8);
+    header.writeUInt32LE(packet.length, 12);
+    return Buffer.concat([header, packet]);
+  });
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, Buffer.concat([globalHeader, ...records]));
+  return filePath;
+}
+
 function createLogicCsv(filePath, flag) {
   const bits = Array.from(Buffer.from(flag, "utf8")).flatMap((byte) => byte.toString(2).padStart(8, "0").split(""));
   const rows = ["IN0,IN1,IN2,IN3,Target_OUT"];
@@ -567,6 +739,27 @@ function align(value, alignment) {
   return Math.ceil(value / alignment) * alignment;
 }
 
+function createClassicSeccompProgram() {
+  const instruction = (code, jt, jf, k) => {
+    const buffer = Buffer.alloc(8);
+    buffer.writeUInt16LE(code, 0);
+    buffer[2] = jt;
+    buffer[3] = jf;
+    buffer.writeUInt32LE(k >>> 0, 4);
+    return buffer;
+  };
+  return Buffer.concat([
+    instruction(0x20, 0, 0, 0),
+    instruction(0x15, 0, 1, 0),
+    instruction(0x06, 0, 0, 0x7fff0000),
+    instruction(0x15, 0, 1, 1),
+    instruction(0x06, 0, 0, 0x7fff0000),
+    instruction(0x15, 0, 1, 257),
+    instruction(0x06, 0, 0, 0x7fff0000),
+    instruction(0x06, 0, 0, 0),
+  ]);
+}
+
 function createPwnElf64(filePath, flag) {
   const dynstrValues = [
     "",
@@ -622,6 +815,8 @@ function createPwnElf64(filePath, flag) {
   buildIdNote.writeUInt32LE(3, 8);
   buildIdNote.write("GNU\0", 12, "ascii");
   Buffer.from("00112233445566778899aabbccddeeff00112233", "hex").copy(buildIdNote, 16);
+  const rodataText = Buffer.from(`${flag}\0Choice:\0Index:\0Size:\0Content:\0/bin/sh\0leak: %p %p %n\0flag.txt\0GLIBC_2.31\0`, "ascii");
+  const rodata = Buffer.concat([rodataText, Buffer.alloc((8 - (rodataText.length % 8)) % 8), createClassicSeccompProgram()]);
 
   const sectionNames = ["", ".text", ".rodata", ".interp", ".dynstr", ".dynsym", ".rela.plt", ".dynamic", ".note.GNU-stack", ".note.gnu.build-id", ".shstrtab"];
   const shstrOffsets = new Map();
@@ -662,7 +857,7 @@ function createPwnElf64(filePath, flag) {
       type: 1,
       flags: 2n,
       address: 0x402000n,
-      data: Buffer.from(`${flag}\0Choice:\0Index:\0Size:\0Content:\0/bin/sh\0leak: %p %p %n\0flag.txt\0GLIBC_2.31\0`, "ascii"),
+      data: rodata,
       align: 8,
       link: 0,
       info: 0,
@@ -733,6 +928,63 @@ function createPwnElf64(filePath, flag) {
     buffer.writeBigUInt64LE(BigInt(section.entrySize || 0), start + 56);
   });
 
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, buffer);
+  return filePath;
+}
+
+function createElfCoreFixture(filePath) {
+  const description = Buffer.alloc(112 + 27 * 8);
+  description.writeUInt32LE(11, 12);
+  const registerBase = 112;
+  const registers = {
+    4: 0x7fffffffe100n,
+    10: 0x41414141n,
+    12: 0x1337n,
+    13: 0x402000n,
+    14: 0x403000n,
+    16: 0x401337n,
+    19: 0x7fffffffe000n,
+  };
+  Object.entries(registers).forEach(([index, value]) => description.writeBigUInt64LE(value, registerBase + Number(index) * 8));
+  const noteName = Buffer.from("CORE\0", "ascii");
+  const note = Buffer.alloc(12 + align(noteName.length, 4) + align(description.length, 4));
+  note.writeUInt32LE(noteName.length, 0);
+  note.writeUInt32LE(description.length, 4);
+  note.writeUInt32LE(1, 8);
+  noteName.copy(note, 12);
+  description.copy(note, 12 + align(noteName.length, 4));
+
+  const programHeaderCount = 2;
+  const noteOffset = align(64 + programHeaderCount * 56, 8);
+  const loadOffset = align(noteOffset + note.length, 16);
+  const loadData = Buffer.from("synthetic core mapping", "ascii");
+  const buffer = Buffer.alloc(loadOffset + loadData.length);
+  buffer.set([0x7f, 0x45, 0x4c, 0x46, 2, 1, 1, 0], 0);
+  buffer.writeUInt16LE(4, 16);
+  buffer.writeUInt16LE(62, 18);
+  buffer.writeUInt32LE(1, 20);
+  buffer.writeBigUInt64LE(64n, 32);
+  buffer.writeUInt16LE(64, 52);
+  buffer.writeUInt16LE(56, 54);
+  buffer.writeUInt16LE(programHeaderCount, 56);
+  buffer.writeUInt16LE(64, 58);
+
+  const writeProgramHeader = (index, type, flags, offset, address, fileSize, memorySize) => {
+    const start = 64 + index * 56;
+    buffer.writeUInt32LE(type, start);
+    buffer.writeUInt32LE(flags, start + 4);
+    buffer.writeBigUInt64LE(BigInt(offset), start + 8);
+    buffer.writeBigUInt64LE(BigInt(address), start + 16);
+    buffer.writeBigUInt64LE(BigInt(address), start + 24);
+    buffer.writeBigUInt64LE(BigInt(fileSize), start + 32);
+    buffer.writeBigUInt64LE(BigInt(memorySize), start + 40);
+    buffer.writeBigUInt64LE(8n, start + 48);
+  };
+  writeProgramHeader(0, 4, 4, noteOffset, 0, note.length, note.length);
+  writeProgramHeader(1, 1, 5, loadOffset, 0x400000, loadData.length, 0x2000);
+  note.copy(buffer, noteOffset);
+  loadData.copy(buffer, loadOffset);
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, buffer);
   return filePath;
@@ -958,6 +1210,78 @@ async function main() {
     ),
   );
 
+  const uartFlag = "flag{uart_signal_smoke}";
+  const uartPath = createUartVcd(path.join(root, "input", "uart.vcd"), uartFlag);
+  results.push(
+    await runReportFlagCase(
+      root,
+      "vcd-uart-signal",
+      {
+        title: "VCD UART signal smoke",
+        description: "Recover an asynchronous 8N1 UART byte stream without an external decoder.",
+        tags: ["hardware", "vcd", "uart"],
+        artifacts: [uartPath],
+      },
+      uartFlag,
+      "-signal-analysis.txt",
+      /## UART attempts[\s\S]*TX period=10 .*frames=/,
+    ),
+  );
+
+  const i2cFlag = "flag{i2c_signal_smoke}";
+  const i2cPath = createI2cVcd(path.join(root, "input", "i2c.vcd"), i2cFlag);
+  results.push(
+    await runReportFlagCase(
+      root,
+      "vcd-i2c-signal",
+      {
+        title: "VCD I2C signal smoke",
+        description: "Sample SCL rising edges, remove ACK bits, and recover the I2C data stream.",
+        tags: ["hardware", "vcd", "i2c"],
+        artifacts: [i2cPath],
+      },
+      i2cFlag,
+      "-signal-analysis.txt",
+      /I2C SCL\/SDA offset=.*ack=1\.00/,
+    ),
+  );
+
+  const canFlag = "flag{can_payload_smoke}";
+  const canPath = createCanLog(path.join(root, "input", "candump.log"), canFlag);
+  results.push(
+    await runReportFlagCase(
+      root,
+      "can-log-payload",
+      {
+        title: "CAN candump payload smoke",
+        description: "Aggregate CAN payloads by arbitration ID and recover readable content.",
+        tags: ["hardware", "can", "candump"],
+        artifacts: [canPath],
+      },
+      canFlag,
+      "-signal-analysis.txt",
+      /kind: can-log[\s\S]*0x321/,
+    ),
+  );
+
+  const icmpFlag = "flag{icmp_covert_smoke}";
+  const icmpPath = createIcmpCovertPcap(path.join(root, "input", "icmp-covert.pcap"), icmpFlag);
+  results.push(
+    await runReportFlagCase(
+      root,
+      "icmp-covert-traffic",
+      {
+        title: "ICMP covert traffic smoke",
+        description: "Concatenate ICMP echo payloads and surface covert-channel candidates.",
+        tags: ["misc", "pcap", "icmp", "covert"],
+        artifacts: [icmpPath],
+      },
+      icmpFlag,
+      "-traffic-summary.txt",
+      /ICMP payload[\s\S]*flag\{icmp_covert_smoke\}/,
+    ),
+  );
+
   const logicCsvFlag = "flag{logic_csv_gate_smoke}";
   const logicCsvPath = createLogicCsv(path.join(root, "input", "logic.csv"), logicCsvFlag);
   results.push(
@@ -987,6 +1311,9 @@ async function main() {
 
   const aarch64ElfPath = createAarch64PwnElf(path.join(root, "input", "pwn-aarch64-smoke.elf"));
   results.push(await runAarch64PwnCase(root, aarch64ElfPath));
+
+  const corePath = createElfCoreFixture(path.join(root, "input", "crash.core"));
+  results.push(await runCoreDumpCase(root, corePath));
 
   const zipCommentFlag = "flag{zip_comment_smoke}";
   const zipCommentPath = createZipWithComment(path.join(root, "input", "comment.zip"), zipCommentFlag);

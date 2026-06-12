@@ -174,7 +174,7 @@
       }),
     getMeta: () =>
       delay({
-        version: "0.5.3",
+        version: "0.5.4",
         packaged: false,
         mode: "browser-preview",
         sandboxRoot,
