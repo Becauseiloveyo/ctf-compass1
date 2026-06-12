@@ -1,6 +1,6 @@
 {
   "name": "ctf-compass-desktop",
-  "version": "0.5.4",
+  "version": "0.6.0",
   "description": "Desktop challenge classification and methodology workbench for lawful CTF analysis.",
   "main": "desktop/main.js",
   "author": "OpenAI Codex",
@@ -15,7 +15,8 @@
     "dist:dir": "electron-builder --win dir",
     "dist:zip": "electron-builder --win zip",
     "postdist:zip": "node scripts/prune-release.js",
-    "smoke:analyzer": "node scripts/smoke-analyzer.js"
+    "smoke:analyzer": "node scripts/smoke-analyzer.js",
+    "smoke:web": "node scripts/smoke-web-analyzer.js"
   },
   "build": {
     "appId": "com.ctfcompass.desktop",

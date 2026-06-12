@@ -2,6 +2,7 @@ const fs = require("fs");
 const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
 const path = require("path");
 const { analyzeChallenge, prepareArtifactsFromEntries, runArtifactAction } = require("./analyzer");
+const { analyzeWebTarget } = require("./web-analyzer");
 
 const isDev = !app.isPackaged;
 const SANDBOX_DIR_NAME = "sandbox";
@@ -161,6 +162,7 @@ ipcMain.handle("pick-files", async () => selectFiles());
 ipcMain.handle("pick-folder", async () => selectFolder());
 ipcMain.handle("prepare-artifacts", async (_event, entryPaths) => prepareArtifactsFromEntries(entryPaths || []));
 ipcMain.handle("analyze-challenge", async (_event, payload) => analyzeChallenge(payload || {}, buildRunOutputRoot()));
+ipcMain.handle("analyze-web-target", async (_event, payload) => analyzeWebTarget(payload || {}, buildRunOutputRoot()));
 ipcMain.handle("run-artifact-action", async (_event, payload) =>
   runArtifactAction(payload?.actionId, payload?.filePath, buildRunOutputRoot()),
 );

@@ -130,11 +130,41 @@
     };
   }
 
+  function buildPreviewWebAnalysis(payload) {
+    const target = String(payload?.url || "http://127.0.0.1:8080/");
+    return {
+      target,
+      origin: target.replace(/\/$/, ""),
+      resolvedAddresses: ["127.0.0.1"],
+      requestCount: 3,
+      durationMs: 180,
+      pages: [
+        {
+          url: target,
+          status: 200,
+          contentType: "text/html",
+          bytes: 1240,
+          comments: ["browser preview comment"],
+          forms: ["POST /login"],
+          sourceMaps: [],
+          routeCandidates: [],
+        },
+      ],
+      errors: [],
+      findings: ["浏览器预览只展示 Web 工作区布局，真实抓取仅在 Electron 桌面版运行。"],
+      flagCandidates: [],
+      nextSteps: ["使用 Electron 桌面版分析 localhost 或私有网段 CTF 靶机。"],
+      reportPath: "",
+      reportPaths: [],
+    };
+  }
+
   window.ctfCompass = {
     pickFiles: () => delay(previewArtifacts),
     pickFolder: () => delay(previewArtifacts),
     prepareArtifacts: (paths) => delay((paths || []).map(makeArtifact)),
     analyzeChallenge: (payload) => delay(buildPreviewAnalysis(payload || {}), 260),
+    analyzeWebTarget: (payload) => delay(buildPreviewWebAnalysis(payload || {}), 260),
     runArtifactAction: () =>
       delay({
         message: "浏览器预览不会运行本地工具，已返回 mock 结果。",

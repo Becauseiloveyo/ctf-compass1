@@ -20,6 +20,8 @@ This project is intentionally limited to legitimate CTF training workflows:
 - automatically extract PDF metadata, XMP packets, readable Flate streams, and OOXML/Office package contents for recursive local analysis
 - automatically inspect WAV metadata, PCM LSB candidates, tone / morse hints, and waveform / spectrogram views for audio-based local challenges
 - automatically inspect ELF / PE / APK attachments, extracting headers, sections, imports / exports, symbol / relocation summaries, interpreter / shared-library hints, ELF roles, GNU Build IDs and GLIBC versions, checksec-lite protections, classic seccomp-BPF syscall policies, ELF core-dump notes/registers/mappings, risky Pwn imports, I/O/network/heap/sandbox profiles, prioritized Pwn paths, short x86/x64 ROP gadget candidates, lightweight AArch64/ARM/MIPS/RISC-V return and syscall gadgets, manifest strings, DEX method indexes, Android string-pool resources, and unpacked package contents for recursive local analysis
+- map authorized localhost and private-network Web CTF targets with bounded same-origin GET requests, extracting routes, scripts, source maps, comments, response headers, cookies, forms, error clues, and direct flag candidates
+- automatically save same-origin Web downloads and feed archives, images, captures, binaries, and other responses into the existing recursive local solver
 - run a bundled local toolbox on each root artifact, covering strings-lite, binwalk-lite, ciphey-lite, zsteg-lite, tshark-lite, and rabin2/exif-lite style checks without external downloads
 - detect local professional CTF tools on PATH and auto-run safe adapters instead of showing placeholder guidance
 - run installed tool adapters for ExifTool, binwalk, zsteg, TShark, Ciphey, rabin2, jadx, and apktool, then import generated output back into the recursive solver
@@ -38,7 +40,7 @@ This project does **not** target real-world systems and should not be used for u
 ## Current Capability Areas
 
 - `crypto`: simple encoded content discovery, category hints, and workflow guidance
-- `web`: challenge metadata and traffic-based session/auth clue routing
+- `web`: authorized local/private-target crawling, robots/sitemap/source-map discovery, response clue extraction, and downloaded-artifact recursion
 - `reverse`: ELF / PE / APK structure extraction, strings/import/export/symbol triage, and flow hints
 - `pwn`: ELF checksec-lite, risky import/function surface, classic seccomp-BPF recovery, core-dump crash-state summaries, local/network I/O and seccomp/alarm/heap profiles, writable/executable/RWX/staging memory surfaces, interesting menu/format/shell strings, prioritized ret2win/overflow/format-string/GOT/ORW/ROP hypotheses, x86/x64 ROP candidates plus lightweight AArch64/ARM/MIPS/RISC-V gadget scans, argument-control/syscall/stack-pivot capability summaries, loader/shared-library clues, and protection-oriented next steps
 - `forensic`: pcap/pcapng stream reconstruction, ICMP/DNS/IP covert-channel candidates, USB HID reconstruction, archive recursion, document extraction, and hidden-artifact oriented workflow hints
@@ -83,6 +85,7 @@ Deleting the sandbox folder removes generated analysis data and future bundled h
 - `docs/`: architecture and challenge methodology guides
 - `docs/public-challenge-benchmarks-2026.md`: repeatable validation notes from recent public CTF challenge releases
 - `docs/huanghe-cup-prep.md`: Huanghe Cup public-history capability matrix and pre-competition checklist
+- `docs/local-web-workbench.md`: local Web target scope, workflow, limits, and training setup
 - `plugins/`: future plugin definitions for category-specific helpers
 
 ## Desktop App
@@ -100,7 +103,14 @@ npm run dist:dir
 
 The unpacked Windows app will be written to `release/win-unpacked/`.
 
-A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.5.4-win-x64.zip`.
+A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.6.0-win-x64.zip`.
+
+Run local analyzer regressions:
+
+```powershell
+npm run smoke:analyzer
+npm run smoke:web
+```
 
 ## GitHub Releases
 

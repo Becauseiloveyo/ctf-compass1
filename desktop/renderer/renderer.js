@@ -1,6 +1,7 @@
 const STRINGS = {
   brandCaption: "\u6311\u6218\u5de5\u4f5c\u53f0",
   navWorkspace: "\u5de5\u4f5c\u53f0",
+  navWeb: "Web 靶机",
   navArtifacts: "\u9644\u4ef6",
   navResults: "\u7ed3\u679c",
   navSettings: "\u8bbe\u7f6e",
@@ -122,6 +123,8 @@ const STRINGS = {
   statusWorkspaceCleared: "\u5f53\u524d\u5de5\u4f5c\u533a\u5df2\u6e05\u7a7a\u3002",
   statusSandboxCleared: "\u6c99\u76d2\u5df2\u6e05\u7406\uff0c\u81ea\u52a8\u751f\u6210\u7684\u9644\u4ef6\u548c\u4e34\u65f6\u5185\u5bb9\u5df2\u79fb\u9664\u3002",
   statusReportExported: "\u5df2\u5bfc\u51fa Markdown \u62a5\u544a\uff1a",
+  statusWebAnalyzing: "正在映射本地 Web 靶机入口、脚本和响应线索...",
+  statusWebDone: "Web 靶机分析完成，结果和报告已写入沙盒。",
   statusErrorPrefix: "\u5206\u6790\u5931\u8d25\uff1a",
   artifactOpen: "\u6253\u5f00\u4f4d\u7f6e",
   artifactRemove: "\u79fb\u9664",
@@ -143,6 +146,10 @@ const VIEW_COPY = {
   workspace: {
     kicker: "\u5de5\u4f5c\u53f0",
     title: "\u4ee5\u9644\u4ef6\u4e3a\u4e2d\u5fc3\u7684 CTF \u5de5\u4f5c\u53f0",
+  },
+  web: {
+    kicker: "Web 靶机",
+    title: "受限同源抓取与 Web CTF 线索分析",
   },
   artifacts: {
     kicker: "\u9644\u4ef6",
@@ -166,6 +173,7 @@ const state = {
   isBusy: false,
   artifacts: [],
   analysis: null,
+  webAnalysis: null,
   casebook: {
     finalFlag: null,
     summary: "",
@@ -185,6 +193,7 @@ const elements = {
   navItems: Array.from(document.querySelectorAll(".nav-item")),
   views: {
     workspace: document.getElementById("workspace-view"),
+    web: document.getElementById("web-view"),
     artifacts: document.getElementById("artifacts-view"),
     results: document.getElementById("results-view"),
     settings: document.getElementById("settings-view"),
@@ -239,6 +248,22 @@ const elements = {
   toolList: document.getElementById("tool-list"),
   sandboxPath: document.getElementById("sandbox-path"),
   sandboxSize: document.getElementById("sandbox-size"),
+  webTargetInput: document.getElementById("web-target-input"),
+  webAuthorizedCheckbox: document.getElementById("web-authorized-checkbox"),
+  webProbePathsCheckbox: document.getElementById("web-probe-paths-checkbox"),
+  webMaxPagesSelect: document.getElementById("web-max-pages-select"),
+  webMaxDepthSelect: document.getElementById("web-max-depth-select"),
+  webRunButton: document.getElementById("web-run-button"),
+  webOpenReportButton: document.getElementById("web-open-report-button"),
+  webPagesCount: document.getElementById("web-pages-count"),
+  webFindingsCount: document.getElementById("web-findings-count"),
+  webFlagsCount: document.getElementById("web-flags-count"),
+  webErrorsCount: document.getElementById("web-errors-count"),
+  webTargetSummary: document.getElementById("web-target-summary"),
+  webFlagsList: document.getElementById("web-flags-list"),
+  webPagesList: document.getElementById("web-pages-list"),
+  webFindingsList: document.getElementById("web-findings-list"),
+  webNextList: document.getElementById("web-next-list"),
 };
 
 function applyStaticCopy() {
@@ -415,6 +440,9 @@ function updateActionAvailability() {
   const canExport = Boolean(state.analysis) && !state.isBusy;
   setButtonDisabled(elements.exportReportButton, !canExport, canExport ? "" : "\u5148\u8fd0\u884c\u4e00\u6b21\u5206\u6790\u3002");
   setButtonDisabled(elements.settingsExportReportButton, !canExport, canExport ? "" : "\u5148\u8fd0\u884c\u4e00\u6b21\u5206\u6790\u3002");
+  const canRunWeb = Boolean(elements.webTargetInput?.value.trim() && elements.webAuthorizedCheckbox?.checked && !state.isBusy);
+  setButtonDisabled(elements.webRunButton, !canRunWeb, canRunWeb ? "" : "填写本地靶机 URL 并确认授权后开始。");
+  setButtonDisabled(elements.webOpenReportButton, !state.webAnalysis?.reportPath || state.isBusy);
 
   [
     elements.pickFilesButton,
@@ -450,6 +478,9 @@ function renderNavBadges() {
     }
     if (view === "results" && state.analysis) {
       value = String(state.analysis.flagCandidates?.length || 0);
+    }
+    if (view === "web" && state.webAnalysis) {
+      value = String(state.webAnalysis.flagCandidates?.length || state.webAnalysis.pages?.length || 0);
     }
     badge.textContent = value;
     badge.hidden = !value;
@@ -1575,11 +1606,96 @@ function renderArtifactDetails() {
   });
 }
 
+function renderWebAnalysis() {
+  const result = state.webAnalysis;
+  elements.webPagesCount.textContent = String(result?.pages?.length || 0);
+  elements.webFindingsCount.textContent = String(result?.findings?.length || 0);
+  elements.webFlagsCount.textContent = String(result?.flagCandidates?.length || 0);
+  elements.webErrorsCount.textContent = String(result?.errors?.length || 0);
+  elements.webTargetSummary.textContent = result
+    ? `${result.origin} · ${result.resolvedAddresses.join(" / ")} · ${result.requestCount} 请求 · ${result.durationMs} ms`
+    : "尚未分析目标。";
+
+  elements.webFlagsList.innerHTML = "";
+  if (!result?.flagCandidates?.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-copy";
+    empty.textContent = "尚未发现直接 flag。";
+    elements.webFlagsList.append(empty);
+  } else {
+    result.flagCandidates.slice(0, 12).forEach((candidate) => {
+      const item = document.createElement("div");
+      item.className = "stack-item flag-item compact-flag-item";
+      item.innerHTML = `<strong>${escapeHtml(candidate.value)}</strong><p>${escapeHtml(candidate.source || "")}</p>`;
+      elements.webFlagsList.append(item);
+    });
+  }
+
+  elements.webPagesList.innerHTML = "";
+  if (!result?.pages?.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-copy";
+    empty.textContent = "运行后会显示同源页面、脚本与路径。";
+    elements.webPagesList.append(empty);
+  } else {
+    result.pages.slice(0, 50).forEach((page) => {
+      const item = document.createElement("div");
+      item.className = "web-page-item";
+      const status = document.createElement("span");
+      status.className = "web-status-code";
+      status.textContent = String(page.status);
+      const copy = document.createElement("div");
+      copy.className = "web-page-copy";
+      const title = document.createElement("strong");
+      title.textContent = page.url;
+      title.title = page.url;
+      const clues = [
+        page.contentType || "unknown",
+        `${page.bytes} B`,
+        page.comments?.length ? `${page.comments.length} 注释` : "",
+        page.forms?.length ? `${page.forms.length} 表单` : "",
+        page.sourceMaps?.length ? `${page.sourceMaps.length} source map` : "",
+        page.routeCandidates?.length ? `${page.routeCandidates.length} 路由` : "",
+      ].filter(Boolean);
+      const meta = document.createElement("small");
+      meta.textContent = clues.join(" · ");
+      copy.append(title, meta);
+      item.append(status, copy);
+      elements.webPagesList.append(item);
+    });
+  }
+
+  elements.webFindingsList.innerHTML = "";
+  const findings = result?.findings || [];
+  if (!findings.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-copy";
+    empty.textContent = "尚无高价值线索。";
+    elements.webFindingsList.append(empty);
+  } else {
+    findings.slice(0, 60).forEach((finding) => {
+      const item = document.createElement("div");
+      item.className = "stack-item";
+      item.textContent = finding;
+      elements.webFindingsList.append(item);
+    });
+  }
+
+  elements.webNextList.innerHTML = "";
+  const nextSteps = result?.nextSteps?.length ? result.nextSteps : ["运行后会列出需要在浏览器中手动验证的高价值入口。"];
+  nextSteps.forEach((step) => {
+    const item = document.createElement("li");
+    item.textContent = step;
+    elements.webNextList.append(item);
+  });
+}
+
 function renderAll() {
   renderViewHeader();
   renderArtifactPreview();
   renderDiscoveryPanel();
   renderWorkspaceStatus();
+  renderWebAnalysis();
   renderResults();
   renderArtifactDetails();
   updateActionAvailability();
@@ -1626,6 +1742,41 @@ async function runAnalysis(options = {}) {
     setStatus(`${STRINGS.statusErrorPrefix} ${error.message}`, "error");
   } finally {
     setBusy(false);
+  }
+}
+
+async function runWebTargetAnalysis() {
+  if (state.isBusy) return;
+  const url = elements.webTargetInput.value.trim();
+  if (!url || !elements.webAuthorizedCheckbox.checked) {
+    setStatus("填写本地靶机 URL 并确认授权后开始。", "error");
+    return;
+  }
+  setBusy(true);
+  try {
+    setStatus(STRINGS.statusWebAnalyzing);
+    state.webAnalysis = await window.ctfCompass.analyzeWebTarget({
+      url,
+      authorized: true,
+      probeCommonPaths: elements.webProbePathsCheckbox.checked,
+      maxPages: Number(elements.webMaxPagesSelect.value),
+      maxDepth: Number(elements.webMaxDepthSelect.value),
+    });
+    elements.webTargetInput.value = state.webAnalysis.target;
+    renderAll();
+    switchView("web");
+    await refreshSandboxInfo();
+    setStatus(STRINGS.statusWebDone);
+  } catch (error) {
+    setStatus(`${STRINGS.statusErrorPrefix} ${error.message}`, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function openWebReport() {
+  if (state.webAnalysis?.reportPath) {
+    await window.ctfCompass.revealArtifact(state.webAnalysis.reportPath);
   }
 }
 
@@ -1783,12 +1934,15 @@ async function clearWorkspace() {
     persistenceReady = false;
     state.artifacts = [];
     state.analysis = null;
+    state.webAnalysis = null;
     state.casebook = createEmptyCasebook();
     elements.titleInput.value = "";
     elements.tagsInput.value = "";
     elements.descriptionInput.value = "";
     elements.notesInput.value = "";
     elements.caseSummaryInput.value = "";
+    elements.webTargetInput.value = "";
+    elements.webAuthorizedCheckbox.checked = false;
     await window.ctfCompass.clearWorkspace();
     renderAll();
     switchView("workspace");
@@ -1807,6 +1961,7 @@ async function hydrateWorkspace() {
     persistenceReady = false;
     state.artifacts = [];
     state.analysis = null;
+    state.webAnalysis = null;
     state.casebook = createEmptyCasebook();
     state.activeView = "workspace";
     state.workbenchFamily = "binary";
@@ -1815,6 +1970,8 @@ async function hydrateWorkspace() {
     elements.descriptionInput.value = "";
     elements.notesInput.value = "";
     elements.caseSummaryInput.value = "";
+    elements.webTargetInput.value = "";
+    elements.webAuthorizedCheckbox.checked = false;
     renderAll();
     switchView("workspace");
     persistenceReady = true;
@@ -1912,6 +2069,8 @@ bindClick(elements.runAnalysisButton, runAnalysis);
 bindClick(elements.workspaceRunAnalysisButton, runAnalysis);
 bindClick(elements.quickRunButton, runAnalysis);
 bindClick(elements.artifactDropzone, () => appendPreparedArtifacts(window.ctfCompass.pickFiles()));
+bindClick(elements.webRunButton, runWebTargetAnalysis);
+bindClick(elements.webOpenReportButton, openWebReport);
 
 [elements.titleInput, elements.tagsInput, elements.descriptionInput, elements.notesInput, elements.caseSummaryInput].forEach((input) => {
   input.addEventListener("input", () => {
@@ -1919,6 +2078,19 @@ bindClick(elements.artifactDropzone, () => appendPreparedArtifacts(window.ctfCom
     updateActionAvailability();
     scheduleWorkspaceSave();
   });
+});
+
+[elements.webTargetInput, elements.webAuthorizedCheckbox, elements.webProbePathsCheckbox, elements.webMaxPagesSelect, elements.webMaxDepthSelect].forEach(
+  (input) => {
+    input.addEventListener("input", updateActionAvailability);
+    input.addEventListener("change", updateActionAvailability);
+  },
+);
+
+elements.webTargetInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !elements.webRunButton.disabled) {
+    runWebTargetAnalysis();
+  }
 });
 
 elements.artifactDropzone.addEventListener("dragover", (event) => {

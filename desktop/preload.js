@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("ctfCompass", {
   pickFolder: () => ipcRenderer.invoke("pick-folder"),
   prepareArtifacts: (paths) => ipcRenderer.invoke("prepare-artifacts", paths),
   analyzeChallenge: (payload) => ipcRenderer.invoke("analyze-challenge", payload),
+  analyzeWebTarget: (payload) => ipcRenderer.invoke("analyze-web-target", payload),
   runArtifactAction: (payload) => ipcRenderer.invoke("run-artifact-action", payload),
   revealArtifact: (targetPath) => ipcRenderer.invoke("reveal-artifact", targetPath),
   loadWorkspace: () => ipcRenderer.invoke("load-workspace"),

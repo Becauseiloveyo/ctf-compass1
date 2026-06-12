@@ -1053,6 +1053,218 @@ select:focus {
   font-size: 13px;
 }
 
+.web-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) clamp(300px, 27vw, 360px);
+  gap: clamp(12px, 1.25vw, 18px);
+  align-items: start;
+}
+
+.web-control-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.web-intro {
+  max-width: 780px;
+}
+
+.scope-badge {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-family: var(--label-font);
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.05em;
+}
+
+.web-target-field input {
+  min-height: 48px;
+  font-family: var(--label-font);
+  font-size: 14px;
+}
+
+.web-options {
+  display: grid;
+  gap: 9px;
+}
+
+.check-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  padding: 12px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+  cursor: pointer;
+}
+
+.check-row input {
+  width: 17px;
+  height: 17px;
+  flex: 0 0 auto;
+  margin: 2px 0 0;
+  accent-color: var(--accent);
+}
+
+.check-row span {
+  display: grid;
+  gap: 4px;
+}
+
+.check-row strong {
+  color: var(--text);
+  font-size: 13px;
+}
+
+.check-row small {
+  color: var(--muted);
+  line-height: 1.5;
+}
+
+.web-limit-grid,
+.web-result-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(12px, 1.25vw, 18px);
+}
+
+.web-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
+}
+
+.web-actions .primary-button {
+  min-width: 160px;
+}
+
+.scope-rules {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.scope-rules span {
+  min-height: 28px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 9px;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+  color: var(--muted-strong);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.web-summary-column {
+  position: sticky;
+  top: 92px;
+  display: grid;
+  gap: 12px;
+}
+
+.web-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.web-metric-grid > div {
+  display: grid;
+  gap: 5px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.web-metric-grid strong {
+  font-family: var(--heading-font);
+  font-size: 21px;
+  letter-spacing: -0.04em;
+}
+
+.web-metric-grid span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.web-result-grid {
+  margin-top: 16px;
+  align-items: start;
+}
+
+.web-page-list {
+  display: grid;
+  gap: 8px;
+}
+
+.web-page-item {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  padding: 11px;
+  border-radius: var(--radius-md);
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.web-status-code {
+  min-width: 42px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--accent);
+  font-family: var(--label-font);
+  font-size: 11px;
+  font-weight: 760;
+}
+
+.web-page-copy {
+  min-width: 0;
+}
+
+.web-page-copy strong {
+  display: block;
+  overflow: hidden;
+  color: var(--text);
+  font-family: var(--label-font);
+  font-size: 12px;
+  line-height: 1.5;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.web-page-copy small {
+  display: block;
+  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.45;
+}
+
+.web-next-panel {
+  margin-top: 16px;
+}
+
+body[data-view="web"] .header-actions {
+  display: none;
+}
+
 .compact-flag-item strong,
 .flag-item-head strong,
 .solver-flag strong {
@@ -1493,6 +1705,8 @@ select:focus {
 
 @media (max-width: 1180px) {
   .workspace-layout,
+  .web-layout,
+  .web-result-grid,
   .dashboard-grid,
   .results-overview,
   .two-column,
@@ -1510,6 +1724,10 @@ select:focus {
   }
 
   .workspace-status-column {
+    position: static;
+  }
+
+  .web-summary-column {
     position: static;
   }
 }
@@ -1558,6 +1776,7 @@ select:focus {
 
   .form-grid,
   .stat-grid,
+  .web-limit-grid,
   .workbench-metrics {
     grid-template-columns: 1fr;
   }

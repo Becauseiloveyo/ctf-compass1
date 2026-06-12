@@ -45,6 +45,15 @@
               </span>
               <span data-copy="navWorkspace"></span>
             </button>
+            <button class="nav-item" type="button" data-view="web">
+              <span class="nav-icon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="8" />
+                  <path d="M4.5 12h15M12 4c2.2 2.3 3.3 5 3.3 8S14.2 17.7 12 20M12 4C9.8 6.3 8.7 9 8.7 12S9.8 17.7 12 20" />
+                </svg>
+              </span>
+              <span data-copy="navWeb"></span>
+            </button>
             <button class="nav-item" type="button" data-view="artifacts">
               <span class="nav-icon" aria-hidden="true">
                 <svg viewBox="0 0 24 24" fill="none">
@@ -236,6 +245,137 @@
               </section>
             </aside>
           </div>
+        </section>
+
+        <section id="web-view" class="view">
+          <div class="web-layout">
+            <section class="panel web-control-panel">
+              <div class="panel-head">
+                <div>
+                  <p class="panel-kicker">LOCAL WEB TARGET</p>
+                  <h3 class="panel-title">授权靶机分析</h3>
+                </div>
+                <span class="scope-badge">GET · SAME ORIGIN</span>
+              </div>
+
+              <p class="body-copy web-intro">
+                面向本机、虚拟机和私有网段 CTF 靶机。应用会抓取页面、脚本、robots.txt、source map 和响应头，寻找 flag 与高价值入口，不执行页面脚本，也不会提交表单。
+              </p>
+
+              <label class="field web-target-field">
+                <span>目标 URL</span>
+                <input id="web-target-input" type="url" placeholder="http://127.0.0.1:8080/" autocomplete="off" spellcheck="false" />
+              </label>
+
+              <div class="web-options">
+                <label class="check-row">
+                  <input id="web-authorized-checkbox" type="checkbox" />
+                  <span>
+                    <strong>我确认这是有权测试的 CTF / 本地靶机</strong>
+                    <small>公网目标默认拒绝，仅允许 localhost、回环地址和私有网段。</small>
+                  </span>
+                </label>
+                <label class="check-row">
+                  <input id="web-probe-paths-checkbox" type="checkbox" checked />
+                  <span>
+                    <strong>检查常见 CTF 路径</strong>
+                    <small>限量检查 robots、sitemap、flag、debug、source、backup 与 .git/HEAD。</small>
+                  </span>
+                </label>
+              </div>
+
+              <div class="web-limit-grid">
+                <label class="field">
+                  <span>最多页面</span>
+                  <select id="web-max-pages-select">
+                    <option value="12">12</option>
+                    <option value="24" selected>24</option>
+                    <option value="40">40</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span>同源深度</span>
+                  <select id="web-max-depth-select">
+                    <option value="1">1</option>
+                    <option value="2" selected>2</option>
+                    <option value="3">3</option>
+                  </select>
+                </label>
+              </div>
+
+              <div class="web-actions">
+                <button id="web-run-button" class="primary-button" type="button">开始 Web 分析</button>
+                <button id="web-open-report-button" class="secondary-button" type="button" disabled>打开报告位置</button>
+              </div>
+
+              <div class="scope-rules">
+                <span>仅 GET</span>
+                <span>同源范围</span>
+                <span>不执行 JS</span>
+                <span>不提交表单</span>
+                <span>25 秒上限</span>
+              </div>
+            </section>
+
+            <aside class="web-summary-column">
+              <section class="panel compact-panel">
+                <div class="panel-head compact-head">
+                  <div>
+                    <p class="panel-kicker">RUN SUMMARY</p>
+                    <h3 class="panel-title">扫描状态</h3>
+                  </div>
+                </div>
+                <div class="web-metric-grid">
+                  <div><strong id="web-pages-count">0</strong><span>页面</span></div>
+                  <div><strong id="web-findings-count">0</strong><span>线索</span></div>
+                  <div><strong id="web-flags-count">0</strong><span>flag</span></div>
+                  <div><strong id="web-errors-count">0</strong><span>失败</span></div>
+                </div>
+                <p id="web-target-summary" class="empty-copy">尚未分析目标。</p>
+              </section>
+
+              <section class="panel compact-panel">
+                <div class="panel-head compact-head">
+                  <div>
+                    <p class="panel-kicker">FLAG CANDIDATES</p>
+                    <h3 class="panel-title">直接命中</h3>
+                  </div>
+                </div>
+                <div id="web-flags-list" class="stack-list compact-stack"></div>
+              </section>
+            </aside>
+          </div>
+
+          <div class="web-result-grid">
+            <section class="panel">
+              <div class="panel-head compact-head">
+                <div>
+                  <p class="panel-kicker">DISCOVERED SURFACE</p>
+                  <h3 class="panel-title">页面与入口</h3>
+                </div>
+              </div>
+              <div id="web-pages-list" class="web-page-list"></div>
+            </section>
+            <section class="panel">
+              <div class="panel-head compact-head">
+                <div>
+                  <p class="panel-kicker">EVIDENCE</p>
+                  <h3 class="panel-title">高价值线索</h3>
+                </div>
+              </div>
+              <div id="web-findings-list" class="stack-list"></div>
+            </section>
+          </div>
+
+          <section class="panel web-next-panel">
+            <div class="panel-head compact-head">
+              <div>
+                <p class="panel-kicker">MANUAL FOLLOW-UP</p>
+                <h3 class="panel-title">需要手动验证的下一步</h3>
+              </div>
+            </div>
+            <ul id="web-next-list" class="plain-list compact-next-list"></ul>
+          </section>
         </section>
 
         <section id="artifacts-view" class="view">
