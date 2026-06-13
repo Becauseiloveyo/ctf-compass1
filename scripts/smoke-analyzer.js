@@ -113,6 +113,72 @@ function createInterleavedPngFixture(filePath, blockSize = 256) {
   return filePath;
 }
 
+function createMbrDiskFixture(filePath, flag) {
+  const sectorSize = 512;
+  const partitionSectors = 2048;
+  const disk = Buffer.alloc((partitionSectors + 1) * sectorSize);
+  const entry = 446;
+  disk[entry] = 0x80;
+  disk[entry + 4] = 0x0c;
+  disk.writeUInt32LE(1, entry + 8);
+  disk.writeUInt32LE(partitionSectors, entry + 12);
+  disk[510] = 0x55;
+  disk[511] = 0xaa;
+  disk.write("MSDOS5.0", sectorSize + 3, "ascii");
+  disk.write("FAT32   ", sectorSize + 82, "ascii");
+  disk.write(`deleted-note=${flag}`, sectorSize + 2048, "ascii");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, disk);
+  return filePath;
+}
+
+function createGptDiskFixture(filePath, flag) {
+  const sectorSize = 512;
+  const disk = Buffer.alloc(4096 * sectorSize);
+  const protective = 446;
+  disk[protective + 4] = 0xee;
+  disk.writeUInt32LE(1, protective + 8);
+  disk.writeUInt32LE(4095, protective + 12);
+  disk[510] = 0x55;
+  disk[511] = 0xaa;
+
+  disk.write("EFI PART", sectorSize, "ascii");
+  disk.writeUInt32LE(0x00010000, sectorSize + 8);
+  disk.writeUInt32LE(92, sectorSize + 12);
+  disk.writeBigUInt64LE(1n, sectorSize + 24);
+  disk.writeBigUInt64LE(4095n, sectorSize + 32);
+  disk.writeBigUInt64LE(8n, sectorSize + 40);
+  disk.writeBigUInt64LE(4087n, sectorSize + 48);
+  disk.writeBigUInt64LE(2n, sectorSize + 72);
+  disk.writeUInt32LE(128, sectorSize + 80);
+  disk.writeUInt32LE(128, sectorSize + 84);
+
+  const entry = sectorSize * 2;
+  Buffer.from("a2a0d0ebe5b9334487c068b6b72699c7", "hex").copy(disk, entry);
+  Buffer.from("102030405060708090a0b0c0d0e0f000", "hex").copy(disk, entry + 16);
+  disk.writeBigUInt64LE(8n, entry + 32);
+  disk.writeBigUInt64LE(2047n, entry + 40);
+  disk.write("evidence", entry + 56, "utf16le");
+
+  const partition = sectorSize * 8;
+  disk.write("NTFS    ", partition + 3, "ascii");
+  disk.write(`case-note=${flag}`, partition + 4096, "ascii");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, disk);
+  return filePath;
+}
+
+function createMemoryFixture(filePath, flag) {
+  const memory = Buffer.alloc(256 * 1024);
+  memory.write("MDMP", 0, "ascii");
+  memory.write("powershell.exe -NoProfile", 4096, "ascii");
+  memory.write("https://ctf.local/session", 8192, "ascii");
+  memory.write(`credential-cache ${flag}`, 12288, "utf16le");
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, memory);
+  return filePath;
+}
+
 function collectFlags(result) {
   return (result.flagCandidates || []).map((item) => item.value);
 }
@@ -1341,6 +1407,57 @@ async function main() {
 
   const interleavedPngPath = createInterleavedPngFixture(path.join(root, "input", "interleaved.png"));
   results.push(await runInterleavedRecoveryCase(root, interleavedPngPath));
+
+  const diskFlag = "flag{mbr_partition_forensic_smoke}";
+  const diskPath = createMbrDiskFixture(path.join(root, "input", "forensic-disk.img"), diskFlag);
+  results.push(
+    await runReportFlagCase(
+      root,
+      "mbr-disk-forensic",
+      {
+        title: "MBR disk image smoke",
+        description: "Inspect the partition table and recover local evidence.",
+        artifacts: [diskPath],
+      },
+      diskFlag,
+      "-forensic-report.txt",
+      /MBR #1.*FAT32/,
+    ),
+  );
+
+  const gptFlag = "flag{gpt_ntfs_forensic_smoke}";
+  const gptPath = createGptDiskFixture(path.join(root, "input", "forensic-gpt.img"), gptFlag);
+  results.push(
+    await runReportFlagCase(
+      root,
+      "gpt-disk-forensic",
+      {
+        title: "GPT disk image smoke",
+        description: "Inspect GPT entries and identify the NTFS evidence partition.",
+        artifacts: [gptPath],
+      },
+      gptFlag,
+      "-forensic-report.txt",
+      /GPT #1.*NTFS/,
+    ),
+  );
+
+  const memoryFlag = "flag{memory_indicator_forensic_smoke}";
+  const memoryPath = createMemoryFixture(path.join(root, "input", "forensic-memory.dmp"), memoryFlag);
+  results.push(
+    await runReportFlagCase(
+      root,
+      "memory-image-forensic",
+      {
+        title: "Windows minidump smoke",
+        description: "Recover process, command, URL, and credential indicators.",
+        artifacts: [memoryPath],
+      },
+      memoryFlag,
+      "-forensic-report.txt",
+      /Windows minidump/,
+    ),
+  );
 
   const usbFlag = "flag{usb_hid_smoke}";
   const usbPcapPath = createUsbKeyboardPcap(path.join(root, "input", "usb-keyboard.pcap"), usbFlag);

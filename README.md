@@ -10,11 +10,12 @@ This project is intentionally limited to legitimate CTF training workflows:
 - extract likely flag candidates from text, ASCII / UTF-16 strings, recursive encoded content, and CJK codepoint byte projection
 - automatically unpack ZIP, GZIP, TAR, and TGZ content and continue recursive analysis
 - automatically decode base64, base58, base91, hex, base32, ascii85/Z85, URL-encoded, quoted-printable, UUEncode, binary/decimal byte streams, escaped byte text, DTMF combined-frequency streams, phone multitap text, A1Z26, NATO phonetic words, DNA 2-bit streams, single-byte XOR, ROT/Caesar, Affine, Rail Fence, Morse, Polybius, Bacon, Brainfuck/Ook, zero-width text, whitespace stego, Unicode tag text, and compressed text layers when they produce useful local results
-- automatically extract solvable image clues such as appended payloads, fixed-block interleaved files, PNG text chunks, PNG/BMP low-bit-plane candidates, GIF comment/application/plain-text extensions, GIF image-descriptor bitstreams, and JPEG COM / XMP / APP segment payloads
+- automatically extract solvable image clues such as bundled offline OCR, appended payloads, fixed-block interleaved files, PNG text chunks, PNG/BMP low-bit-plane candidates, GIF comment/application/plain-text extensions, GIF image-descriptor bitstreams, and JPEG COM / XMP / APP segment payloads
 - automatically inspect MP4/ISO-BMFF top-level boxes and chunk-offset tables, then repair hidden trailing tracks and unsorted `stco`/`co64` tables into derived playable files
 - automatically decode QR and 1D barcode payloads from local images and export RGB / luminance / edge / JPEG-block visualization views for image-based challenges
 - automatically detect modified PNG IHDR dimensions from IDAT scanline structure and generate repaired dimension candidates
 - automatically summarize local traffic captures, extracting HTTP requests, DNS names, TLS SNI, cookies/tokens, USB HID keyboard text, USB mouse tracks, exported HTTP objects, directional TCP/UDP streams, ICMP payload channels, DNS label streams, and IPv4 ID/TTL covert-channel candidates
+- automatically identify MBR/GPT disk images, common FAT/NTFS/ext/XFS file systems, export bounded small partitions, and extract process/command/URL/credential indicators from Windows minidumps and raw memory images
 - automatically parse VCD logic-analyzer captures, CAN/candump/ASC logs, and binary logic CSV files, trying SPI clock edges, UART 8N1 timing, I2C ACK-framed bytes, arbitration-ID payload aggregation, bit orders, gate expressions, bit reversal, and single-byte XOR
 - safely inspect ONNX, Safetensors, Pickle/Joblib, and checkpoint-style model attachments for metadata, tensors, operators, prompt strings, and unsafe deserialization indicators without executing model content
 - automatically extract PDF metadata, XMP packets, readable Flate streams, and OOXML/Office package contents for recursive local analysis
@@ -43,14 +44,14 @@ This project does **not** target real-world systems and should not be used for u
 - `web`: authorized local/private-target crawling, robots/sitemap/source-map discovery, response clue extraction, and downloaded-artifact recursion
 - `reverse`: ELF / PE / APK structure extraction, strings/import/export/symbol triage, and flow hints
 - `pwn`: ELF checksec-lite, risky import/function surface, classic seccomp-BPF recovery, core-dump crash-state summaries, local/network I/O and seccomp/alarm/heap profiles, writable/executable/RWX/staging memory surfaces, interesting menu/format/shell strings, prioritized ret2win/overflow/format-string/GOT/ORW/ROP hypotheses, x86/x64 ROP candidates plus lightweight AArch64/ARM/MIPS/RISC-V gadget scans, argument-control/syscall/stack-pivot capability summaries, loader/shared-library clues, and protection-oriented next steps
-- `forensic`: pcap/pcapng stream reconstruction, ICMP/DNS/IP covert-channel candidates, USB HID reconstruction, archive recursion, document extraction, and hidden-artifact oriented workflow hints
-- `misc`: image/GIF/video stego, MP4 container repair, VCD/SPI/UART/I2C, CAN-log and logic-CSV recovery, and mixed-artifact triage with local auto-processing where deterministic
+- `forensic`: pcap/pcapng stream reconstruction, ICMP/DNS/IP covert-channel candidates, USB HID reconstruction, MBR/GPT and file-system identification, minidump/raw-memory indicator recovery, archive recursion, document extraction, and hidden-artifact oriented workflow hints
+- `misc`: offline image OCR, image/GIF/video stego, MP4 container repair, VCD/SPI/UART/I2C, CAN-log and logic-CSV recovery, and mixed-artifact triage with local auto-processing where deterministic
 
 ## Tool-Backed Workflow
 
 CTF Compass uses a two-layer workflow:
 
-- Built-in analyzers handle deterministic local tasks such as recursive ZIP/GZIP/TAR/TGZ extraction, strings, encoded text layers, PNG text chunks, PNG/BMP LSB candidates, GIF extension text, QR/barcode detection, basic pcap triage, PDF/Office unpacking, WAV clues, ELF checksec/Pwn surface/gadget triage, and ELF/PE/APK structure summaries.
+- Built-in analyzers handle deterministic local tasks such as recursive ZIP/GZIP/TAR/TGZ extraction, strings, encoded text layers, bundled offline OCR, PNG text chunks, PNG/BMP LSB candidates, GIF extension text, QR/barcode detection, disk/memory forensic triage, basic pcap triage, PDF/Office unpacking, WAV clues, ELF checksec/Pwn surface/gadget triage, and ELF/PE/APK structure summaries.
 - A bundled toolbox report is generated automatically for each root artifact. It mimics the common workflow of `strings`, `binwalk`, `Ciphey`, `zsteg`, `TShark`, `rabin2`, and `exiftool` where a lightweight in-app implementation is practical.
 - External tool adapters run mature local tools when they are installed. Safe scan/extract adapters are executed automatically during solver runs, while heavier decompile/export actions remain available from each artifact card.
 
@@ -103,7 +104,7 @@ npm run dist:dir
 
 The unpacked Windows app will be written to `release/win-unpacked/`.
 
-A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.6.1-win-x64.zip`.
+A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.7.0-win-x64.zip`.
 
 Run local analyzer regressions:
 

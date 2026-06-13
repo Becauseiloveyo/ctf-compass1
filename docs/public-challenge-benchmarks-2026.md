@@ -23,7 +23,7 @@ This document records validation against recently released public CTF challenges
 | Fennec CTF: ARMy | Pwn / AArch64 | Partial static triage | Identifies ELF64 AArch64, protections and fixed-address/GOT paths, suppresses the embedded fake flag, and exports AArch64 `ret`, branch, and `svc` gadget candidates. |
 | DownUnderCTF: Down To Modulate Frequencies! | Misc / DTMF text | Solved | Maps four-digit combined frequencies to DTMF keys, applies phone multitap decoding, reads the flag-format hint, and recovers the published flag. |
 | DownUnderCTF: BeepBeep | Misc / WAV tones | Solved | Detects the leading 26-tone alphabet, estimates the tone duration, maps the remaining signal, normalizes spoken bracket tokens, and recovers the published flag. |
-| DownUnderCTF: scrapbooking | Misc / interleaved PNG | Partial, recovery completed | Detects three round-robin 1024-byte PNG streams, reconstructs each image, trims trailing interleave padding, and generates a text-aligned contact sheet. |
+| DownUnderCTF: scrapbooking | Misc / interleaved PNG | Solved | Detects three round-robin 1024-byte PNG streams, reconstructs each image, generates a text-aligned contact sheet, and reads the final flag with bundled offline OCR. |
 | DownUnderCTF: Fishy Website | Misc / traffic | Correctly partial | Rejects random XOR-produced brace strings instead of incorrectly marking the challenge solved; challenge-specific RC4 key recovery remains a manual gap. |
 
 ## Improvements Driven By These Challenges
@@ -41,6 +41,8 @@ This document records validation against recently released public CTF challenges
 - Added DTMF combined-frequency and phone multitap decoding with challenge-provided flag-format wrapping.
 - Added bounded Goertzel-based WAV alphabet-tone mapping.
 - Added fixed-block round-robin file recovery and aligned PNG contact sheets.
+- Added bundled offline English OCR with flag-shape normalization; the full `scrapbooking` pipeline now reaches a solved result.
+- Added built-in MBR/GPT, FAT/NTFS/ext/XFS, Windows minidump, and raw-memory forensic triage.
 - Raised solved-state confidence and filtered low-diversity or punctuation-heavy random brace strings.
 
 ## Reproduction Notes

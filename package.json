@@ -1,6 +1,6 @@
 {
   "name": "ctf-compass-desktop",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "description": "Desktop challenge classification and methodology workbench for lawful CTF analysis.",
   "main": "desktop/main.js",
   "author": "OpenAI Codex",
@@ -31,6 +31,11 @@
       "README.md",
       "package.json"
     ],
+    "asarUnpack": [
+      "node_modules/@tesseract.js-data/eng/**/*",
+      "node_modules/tesseract.js-core/**/*",
+      "node_modules/tesseract.js/src/worker-script/node/**/*"
+    ],
     "win": {
       "signAndEditExecutable": false,
       "verifyUpdateCodeSignature": false
@@ -48,10 +53,12 @@
   },
   "dependencies": {
     "@ericblade/quagga2": "^1.12.1",
+    "@tesseract.js-data/eng": "^1.0.0",
     "adm-zip": "^0.5.17",
     "exif-parser": "^0.1.12",
     "jpeg-js": "^0.4.4",
     "jsqr": "^1.4.0",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "tesseract.js": "^7.0.0"
   }
 }

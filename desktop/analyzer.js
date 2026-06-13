@@ -343,6 +343,10 @@ const LOOSE_FLAG_PREFIX_GLOBAL = /\bflag\s*[:=_-]\s*[a-zA-Z0-9_\/+=-]{6,160}\b/g
 const NATURAL_TEXT_HINT = /\b(?:the|this|that|flag|password|secret|cookie|session|token|login|http|https|user|admin|hello|world|image|file|data|text)\b/i;
 const OFFICE_DOCUMENT_EXTENSIONS = [".docx", ".xlsx", ".pptx", ".docm", ".xlsm", ".pptm", ".odt", ".ods", ".odp"];
 const MODEL_EXTENSIONS = [".onnx", ".safetensors", ".pkl", ".pickle", ".joblib", ".pt", ".pth", ".ckpt"];
+const DISK_IMAGE_EXTENSIONS = [".img", ".dd", ".raw", ".vhd", ".vhdx", ".e01"];
+const MEMORY_IMAGE_EXTENSIONS = [".mem", ".dmp", ".vmem"];
+const MAX_FORENSIC_SCAN_BYTES = 64 * 1024 * 1024;
+const MAX_EXPORTED_PARTITION_BYTES = 32 * 1024 * 1024;
 
 function formatBytes(size) {
   if (size < 1024) {
@@ -2616,6 +2620,12 @@ function detectFamily(filePath, sample) {
   if (MODEL_EXTENSIONS.includes(extension)) {
     return { family: "binary", badge: extension.slice(1).toUpperCase() || "MODEL" };
   }
+  if (MEMORY_IMAGE_EXTENSIONS.includes(extension) || sample.subarray(0, 4).toString("ascii") === "MDMP") {
+    return { family: "binary", badge: "MEMORY" };
+  }
+  if (DISK_IMAGE_EXTENSIONS.includes(extension)) {
+    return { family: "binary", badge: "DISK" };
+  }
   if (["elf", "pe"].includes(magic) || [".exe", ".dll", ".bin", ".so", ".elf", ".apk", ".jar"].includes(extension)) {
     return { family: "binary", badge: magic.toUpperCase() || extension.slice(1).toUpperCase() || "BIN" };
   }
@@ -2766,6 +2776,14 @@ function pngCrc32(buffer) {
     }
   }
   return (crc ^ 0xffffffff) >>> 0;
+}
+
+function hasValidPngHeaderCrc(buffer) {
+  return (
+    buffer.length >= 33 &&
+    buffer.subarray(12, 16).toString("ascii") === "IHDR" &&
+    buffer.readUInt32BE(29) === pngCrc32(buffer.subarray(12, 29))
+  );
 }
 
 function analyzePngDimensionCandidates(buffer) {
@@ -6958,6 +6976,202 @@ function buildModelReport(fileName, report) {
   return `${lines.join("\n")}\n`;
 }
 
+function normalizeOcrFlagCandidates(text) {
+  const candidates = [];
+  const pattern = /\b([A-Za-z0-9_]{2,32})\{([^{}\r\n]{3,160})\}/g;
+  for (const match of String(text || "").matchAll(pattern)) {
+    const body = match[2]
+      .trim()
+      .replace(/\s+/g, "_")
+      .replace(/_+([,.;:!?])/g, "$1");
+    candidates.push(`${match[1]}{${body}}`);
+  }
+  return dedupeStrings(candidates);
+}
+
+function formatGuid(buffer, offset) {
+  if (offset < 0 || offset + 16 > buffer.length) {
+    return "";
+  }
+  return [
+    buffer.readUInt32LE(offset).toString(16).padStart(8, "0"),
+    buffer.readUInt16LE(offset + 4).toString(16).padStart(4, "0"),
+    buffer.readUInt16LE(offset + 6).toString(16).padStart(4, "0"),
+    buffer.subarray(offset + 8, offset + 10).toString("hex"),
+    buffer.subarray(offset + 10, offset + 16).toString("hex"),
+  ].join("-");
+}
+
+function detectFilesystemAt(buffer, offset) {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset >= buffer.length) {
+    return null;
+  }
+  const has = (relative, size) => offset + relative + size <= buffer.length;
+  if (has(3, 8) && buffer.subarray(offset + 3, offset + 11).toString("ascii") === "NTFS    ") {
+    return "NTFS";
+  }
+  if (has(82, 8) && buffer.subarray(offset + 82, offset + 90).toString("ascii").startsWith("FAT32")) {
+    return "FAT32";
+  }
+  if (has(54, 8) && buffer.subarray(offset + 54, offset + 62).toString("ascii").startsWith("FAT")) {
+    return "FAT12/16";
+  }
+  if (has(1024 + 56, 2) && buffer.readUInt16LE(offset + 1024 + 56) === 0xef53) {
+    return "ext2/3/4";
+  }
+  if (has(0, 4) && buffer.subarray(offset, offset + 4).toString("ascii") === "XFSB") {
+    return "XFS";
+  }
+  return null;
+}
+
+function analyzeForensicContainer(buffer, totalSize, extension = "") {
+  const report = {
+    kind: "unknown",
+    format: "raw binary",
+    partitions: [],
+    filesystems: [],
+    indicators: [],
+    strings: [],
+  };
+  const ascii = extractAsciiStrings(buffer, 5, 4000);
+  const unicode = extractUnicodeStrings(buffer, 5, 2000);
+  const allStrings = dedupeStrings(ascii.concat(unicode));
+
+  if (buffer.length >= 4 && buffer.subarray(0, 4).toString("ascii") === "MDMP") {
+    report.kind = "memory";
+    report.format = "Windows minidump";
+  } else if (buffer.length >= 8 && buffer.subarray(0, 8).toString("ascii") === "PAGEDUMP") {
+    report.kind = "memory";
+    report.format = "Windows crash dump";
+  } else if (MEMORY_IMAGE_EXTENSIONS.includes(extension)) {
+    report.kind = "memory";
+    report.format = extension === ".vmem" ? "VMware memory image" : "raw memory image";
+  }
+
+  if (report.kind === "memory") {
+    report.indicators = dedupeStrings(
+      allStrings.filter(
+        (value) =>
+          /(?:\.exe\b|powershell|cmd\.exe|rundll32|regsvr32|https?:\/\/|HKEY_|\\Users\\|\\Windows\\|flag\{|ctf\{)/i.test(value),
+      ),
+    ).slice(0, 160);
+    report.strings = allStrings.filter((value) => /flag|ctf|password|secret|token|cookie|command|process|http/i.test(value)).slice(0, 160);
+    return report;
+  }
+
+  const hasMbr = buffer.length >= 512 && buffer[510] === 0x55 && buffer[511] === 0xaa;
+  const hasGpt = buffer.length >= 520 && buffer.subarray(512, 520).toString("ascii") === "EFI PART";
+  if (hasMbr || hasGpt || DISK_IMAGE_EXTENSIONS.includes(extension)) {
+    report.kind = "disk";
+    report.format = hasGpt ? "GPT disk image" : hasMbr ? "MBR disk image" : "raw disk image";
+  }
+
+  if (hasMbr) {
+    for (let index = 0; index < 4; index += 1) {
+      const offset = 446 + index * 16;
+      const type = buffer[offset + 4];
+      const startLba = buffer.readUInt32LE(offset + 8);
+      const sectors = buffer.readUInt32LE(offset + 12);
+      if (!type || !sectors) {
+        continue;
+      }
+      const byteOffset = startLba * 512;
+      const byteLength = sectors * 512;
+      const fileSystem = detectFilesystemAt(buffer, byteOffset);
+      const partition = {
+        source: "MBR",
+        index: index + 1,
+        type: `0x${type.toString(16).padStart(2, "0")}`,
+        name: "",
+        startLba,
+        endLba: startLba + sectors - 1,
+        byteOffset,
+        byteLength,
+        fileSystem,
+      };
+      report.partitions.push(partition);
+      if (fileSystem) {
+        report.filesystems.push(`partition ${partition.index}: ${fileSystem}`);
+      }
+    }
+  }
+
+  if (hasGpt && buffer.length >= 604) {
+    const entryLba = Number(buffer.readBigUInt64LE(584));
+    const entryCount = Math.min(buffer.readUInt32LE(592), 128);
+    const entrySize = buffer.readUInt32LE(596);
+    const tableOffset = entryLba * 512;
+    if (entrySize >= 128 && tableOffset < buffer.length) {
+      for (let index = 0; index < entryCount; index += 1) {
+        const offset = tableOffset + index * entrySize;
+        if (offset + 128 > buffer.length || buffer.subarray(offset, offset + 16).every((byte) => byte === 0)) {
+          continue;
+        }
+        const startLba = Number(buffer.readBigUInt64LE(offset + 32));
+        const endLba = Number(buffer.readBigUInt64LE(offset + 40));
+        const byteOffset = startLba * 512;
+        const byteLength = (endLba - startLba + 1) * 512;
+        const fileSystem = detectFilesystemAt(buffer, byteOffset);
+        const partition = {
+          source: "GPT",
+          index: index + 1,
+          type: formatGuid(buffer, offset),
+          name: buffer
+            .subarray(offset + 56, Math.min(offset + 128, offset + entrySize))
+            .toString("utf16le")
+            .replace(/\0+$/g, ""),
+          startLba,
+          endLba,
+          byteOffset,
+          byteLength,
+          fileSystem,
+        };
+        report.partitions.push(partition);
+        if (fileSystem) {
+          report.filesystems.push(`partition ${partition.index}: ${fileSystem}`);
+        }
+      }
+    }
+  }
+
+  if (report.kind === "disk" && !report.partitions.length) {
+    const fileSystem = detectFilesystemAt(buffer, 0);
+    if (fileSystem) {
+      report.filesystems.push(`whole image: ${fileSystem}`);
+    }
+  }
+  report.indicators = allStrings.filter((value) => /flag|ctf|password|secret|token|deleted|recover/i.test(value)).slice(0, 120);
+  report.strings = report.indicators;
+  report.totalSize = totalSize;
+  return report;
+}
+
+function buildForensicReport(fileName, report) {
+  const lines = [
+    "# FORENSIC CONTAINER REPORT",
+    `file: ${fileName}`,
+    `kind: ${report.kind}`,
+    `format: ${report.format}`,
+    `size: ${formatBytes(report.totalSize || 0)}`,
+    "",
+  ];
+  appendReportSection(
+    lines,
+    "partitions",
+    report.partitions.map(
+      (item) =>
+        `${item.source} #${item.index} type=${item.type} name=${item.name || "-"} start=${item.startLba} end=${item.endLba} offset=${formatOffset(
+          item.byteOffset,
+        )} size=${formatBytes(item.byteLength)} fs=${item.fileSystem || "unknown"}`,
+    ),
+    "(none)",
+  );
+  appendReportSection(lines, "file systems", report.filesystems, "(none detected in scan window)");
+  appendReportSection(lines, "memory/disk indicators", report.indicators, "(none)");
+  return `${lines.join("\n")}\n`;
+}
+
 async function buildArtifactSignals(filePath) {
   const extension = path.extname(filePath).toLowerCase();
   const sampleLimit =
@@ -7029,6 +7243,7 @@ async function buildArtifactSignals(filePath) {
   let peReport = null;
   let apkReport = null;
   let modelReport = null;
+  let forensicReport = null;
   let imageRaster = null;
   let qrPayload = null;
   let barcodePayload = null;
@@ -7100,6 +7315,8 @@ async function buildArtifactSignals(filePath) {
         apkReport = parseApkPackage(filePath);
       } else if (MODEL_EXTENSIONS.includes(extension)) {
         modelReport = analyzeModelArtifact(buffer, extension);
+      } else if (artifact.badge === "DISK" || artifact.badge === "MEMORY") {
+        forensicReport = analyzeForensicContainer(buffer, stat.size, extension);
       }
     } catch (_error) {
       elfReport = null;
@@ -7189,6 +7406,14 @@ async function buildArtifactSignals(filePath) {
           return { value, source };
         });
       }
+    }
+    const ocrReadable =
+      artifact.badge !== "PNG" || hasValidPngHeaderCrc(buffer);
+    if (["PNG", "JPEG", "BMP"].includes(artifact.badge) && ocrReadable && (imageRaster || /contact-sheet/i.test(artifact.name))) {
+      artifact.actions.push({
+        id: "extract-image-ocr",
+        label: "\u8bc6\u522b\u56fe\u50cf\u6587\u5b57",
+      });
     }
     if (imageRaster) {
       artifact.actions.push({
@@ -7446,6 +7671,23 @@ async function buildArtifactSignals(filePath) {
     artifact.summary = "\u4e8c\u8fdb\u5236\u7c7b\u9644\u4ef6\uff0c\u53ef\u4ece strings\u3001\u5bfc\u5165\u8868\u3001\u6821\u9a8c\u5b57\u7b26\u4e32\u548c\u63a7\u5236\u6d41\u5207\u5165\u3002";
     artifact.keywords.push("binary");
     const unicodeStrings = extractUnicodeStrings(buffer, 4, 120);
+    if (forensicReport) {
+      artifact.summary =
+        forensicReport.kind === "memory"
+          ? "\u5185\u5b58\u53d6\u8bc1\u9644\u4ef6\uff0c\u53ef\u5185\u7f6e\u63d0\u53d6\u8fdb\u7a0b\u3001\u547d\u4ee4\u3001URL\u3001\u6ce8\u518c\u8868\u8def\u5f84\u548c flag \u7ebf\u7d22\u3002"
+          : "\u78c1\u76d8\u53d6\u8bc1\u9644\u4ef6\uff0c\u53ef\u5185\u7f6e\u8bc6\u522b MBR/GPT\u3001\u5206\u533a\u548c\u5e38\u89c1\u6587\u4ef6\u7cfb\u7edf\u3002";
+      artifact.keywords.push("forensic", forensicReport.kind, "filesystem", "memory");
+      artifact.highlights.push(`${forensicReport.format}\uff1bpartition=${forensicReport.partitions.length}\uff1bfilesystem=${forensicReport.filesystems.length}\u3002`);
+      artifact.actions.push({
+        id: "extract-forensic-container",
+        label: "\u89e3\u6790\u53d6\u8bc1\u5bb9\u5668",
+      });
+      artifact.suggestions.push(
+        forensicReport.kind === "memory"
+          ? "\u5148\u68c0\u67e5\u5185\u7f6e\u62a5\u544a\u4e2d\u7684\u8fdb\u7a0b\u3001\u547d\u4ee4\u3001URL \u548c\u51ed\u636e\u7ebf\u7d22\u3002"
+          : "\u5148\u68c0\u67e5\u5206\u533a\u8868\u548c\u6587\u4ef6\u7cfb\u7edf\uff0c\u5c0f\u5206\u533a\u4f1a\u81ea\u52a8\u5bfc\u51fa\u5e76\u9012\u5f52\u5206\u6790\u3002",
+      );
+    }
     if (modelReport) {
       artifact.summary = "\u6a21\u578b/\u5e8f\u5217\u5316\u9644\u4ef6\uff0c\u5b89\u5168\u63d0\u53d6\u5143\u6570\u636e\u3001\u5f20\u91cf\u540d\u3001\u7b97\u5b50\u3001\u63d0\u793a\u8bcd\u548c\u5371\u9669\u53cd\u5e8f\u5217\u5316\u7ebf\u7d22\uff0c\u4e0d\u6267\u884c\u5185\u5bb9\u3002";
       artifact.keywords.push("ai", "model", "model reverse", "prompt", "misc", extension.slice(1));
@@ -10868,6 +11110,125 @@ function extractPngLsb(filePath, outputRoot) {
   };
 }
 
+async function extractImageOcr(filePath, outputRoot) {
+  const { createWorker, PSM } = require("tesseract.js");
+  const language = require("@tesseract.js-data/eng");
+  const worker = await createWorker(language.code, 1, {
+    langPath: language.langPath,
+    gzip: language.gzip,
+    cacheMethod: "none",
+    logger: () => {},
+    errorHandler: () => {},
+  });
+  const attempts = [];
+  try {
+    for (const pageMode of [PSM.AUTO, PSM.SINGLE_BLOCK]) {
+      await worker.setParameters({
+        tessedit_pageseg_mode: pageMode,
+        preserve_interword_spaces: "1",
+        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789{}_ -.:/=",
+      });
+      try {
+        const result = await worker.recognize(filePath);
+        const text = String(result.data?.text || "").trim();
+        if (text) {
+          attempts.push({
+            pageMode,
+            confidence: Number(result.data?.confidence || 0),
+            text,
+            normalized: normalizeOcrFlagCandidates(text),
+          });
+        }
+      } catch (_error) {
+        // Malformed CTF images may be recoverable by other actions but unreadable by OCR.
+      }
+    }
+  } finally {
+    await worker.terminate();
+  }
+
+  if (!attempts.length) {
+    throw new Error("\u5185\u7f6e OCR \u6ca1\u6709\u8bc6\u522b\u5230\u53ef\u7528\u6587\u5b57\u3002");
+  }
+  attempts.sort((left, right) => {
+    const candidateDelta = right.normalized.length - left.normalized.length;
+    return candidateDelta || right.confidence - left.confidence;
+  });
+  const best = attempts[0];
+  const lines = [
+    "# BUILT-IN IMAGE OCR REPORT",
+    `file: ${path.basename(filePath)}`,
+    `engine: tesseract.js / bundled eng data`,
+    `confidence: ${best.confidence.toFixed(1)}`,
+    `page-segmentation-mode: ${best.pageMode}`,
+    "",
+    "## normalized flag candidates",
+    ...(best.normalized.length ? best.normalized : ["(none)"]),
+    "",
+    "## recognized text",
+    best.text,
+    "",
+  ];
+  const outPath = writeGeneratedFile(
+    outputRoot,
+    `${sanitizeSegment(path.parse(filePath).name)}-ocr.txt`,
+    `${lines.join("\n")}\n`,
+  );
+  return {
+    message: `\u5185\u7f6e OCR \u5df2\u8bc6\u522b\u56fe\u50cf\u6587\u5b57\uff0c\u7f6e\u4fe1\u5ea6 ${best.confidence.toFixed(1)}\u3002`,
+    createdFiles: [outPath],
+  };
+}
+
+function extractForensicContainer(filePath, outputRoot) {
+  const stat = fs.statSync(filePath);
+  const extension = path.extname(filePath).toLowerCase();
+  const buffer = readSample(filePath, Math.min(stat.size, MAX_FORENSIC_SCAN_BYTES)).buffer;
+  const report = analyzeForensicContainer(buffer, stat.size, extension);
+  const baseName = sanitizeSegment(path.parse(filePath).name);
+  const createdFiles = [
+    writeGeneratedFile(outputRoot, `${baseName}-forensic-report.txt`, buildForensicReport(path.basename(filePath), report)),
+  ];
+
+  if (report.kind === "disk") {
+    const descriptor = fs.openSync(filePath, "r");
+    try {
+      report.partitions
+        .filter(
+          (item) =>
+            Number.isSafeInteger(item.byteOffset) &&
+            Number.isSafeInteger(item.byteLength) &&
+            item.byteOffset >= 0 &&
+            item.byteLength > 0 &&
+            item.byteLength <= MAX_EXPORTED_PARTITION_BYTES &&
+            item.byteOffset + item.byteLength <= stat.size,
+        )
+        .slice(0, 8)
+        .forEach((item) => {
+          const partition = Buffer.alloc(item.byteLength);
+          fs.readSync(descriptor, partition, 0, item.byteLength, item.byteOffset);
+          createdFiles.push(
+            writeGeneratedFile(
+              outputRoot,
+              `${baseName}-partition-${item.index}-${String(item.fileSystem || "raw").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.img`,
+              partition,
+            ),
+          );
+        });
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  }
+
+  return {
+    message:
+      report.kind === "memory"
+        ? "\u5df2\u63d0\u53d6\u5185\u5b58\u955c\u50cf\u4e2d\u7684\u8fdb\u7a0b\u3001\u547d\u4ee4\u3001URL \u548c\u51ed\u636e\u7ebf\u7d22\u3002"
+        : `\u5df2\u89e3\u6790\u5206\u533a\u8868\u4e0e\u6587\u4ef6\u7cfb\u7edf\uff0c\u5bfc\u51fa ${Math.max(0, createdFiles.length - 1)} \u4e2a\u5c0f\u5206\u533a\u7ee7\u7eed\u5206\u6790\u3002`,
+    createdFiles,
+  };
+}
+
 async function runArtifactActionInternal(actionId, filePath, outputRoot, options = {}) {
   if (!filePath || !fs.existsSync(filePath)) {
     throw new Error("\u76ee\u6807\u9644\u4ef6\u4e0d\u5b58\u5728\u3002");
@@ -10893,6 +11254,9 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot, options
   }
   if (actionId === "extract-image-metadata") {
     return extractImageMetadata(filePath, baseDir);
+  }
+  if (actionId === "extract-image-ocr") {
+    return extractImageOcr(filePath, baseDir);
   }
   if (actionId === "extract-mp4-clues") {
     return extractMp4Clues(filePath, baseDir);
@@ -10948,6 +11312,9 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot, options
   if (actionId === "extract-model-clues") {
     return extractModelClues(filePath, baseDir);
   }
+  if (actionId === "extract-forensic-container") {
+    return extractForensicContainer(filePath, baseDir);
+  }
   if (actionId === "extract-png-text") {
     return extractPngText(filePath, baseDir);
   }
@@ -10979,6 +11346,9 @@ function shouldAutoRun(actionId, artifact) {
   }
   if (actionId === "extract-image-metadata") {
     return artifact.depth === 0;
+  }
+  if (actionId === "extract-image-ocr") {
+    return artifact.family === "image" && (artifact.depth === 0 || /(?:contact-sheet|repaired)/i.test(artifact.name));
   }
   if (actionId === "extract-mp4-clues") {
     return artifact.badge === "MP4" && artifact.depth === 0;
@@ -11038,6 +11408,9 @@ function shouldAutoRun(actionId, artifact) {
   }
   if (actionId === "extract-model-clues") {
     return artifact.depth === 0 && MODEL_EXTENSIONS.includes(artifact.extension);
+  }
+  if (actionId === "extract-forensic-container") {
+    return artifact.depth === 0 && ["DISK", "MEMORY"].includes(artifact.badge);
   }
   if (actionId === "extract-png-text" || actionId === "extract-png-lsb") {
     return artifact.depth < MAX_PIPELINE_DEPTH;
@@ -11114,6 +11487,9 @@ async function buildPipelineArtifacts(rootPaths, outputRoot, options = {}) {
           continue;
         }
         if (action.id === "extract-strings" && message.includes("\u6ca1\u6709\u63d0\u53d6\u5230\u53ef\u7528 strings")) {
+          continue;
+        }
+        if (action.id === "extract-image-ocr" && message.includes("\u6ca1\u6709\u8bc6\u522b\u5230\u53ef\u7528\u6587\u5b57")) {
           continue;
         }
         pipelineErrors.push({
