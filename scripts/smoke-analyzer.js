@@ -24,6 +24,95 @@ function writeText(filePath, content) {
   return filePath;
 }
 
+const SMOKE_DTMF_COMBINED = {
+  0: "2277",
+  1: "1906",
+  2: "2033",
+  3: "2174",
+  4: "1979",
+  5: "2106",
+  6: "2247",
+  7: "2061",
+  8: "2188",
+  9: "2329",
+};
+
+const SMOKE_MULTITAP = {
+  a: ["2", 1], b: ["2", 2], c: ["2", 3],
+  d: ["3", 1], e: ["3", 2], f: ["3", 3],
+  g: ["4", 1], h: ["4", 2], i: ["4", 3],
+  j: ["5", 1], k: ["5", 2], l: ["5", 3],
+  m: ["6", 1], n: ["6", 2], o: ["6", 3],
+  p: ["7", 1], q: ["7", 2], r: ["7", 3], s: ["7", 4],
+  t: ["8", 1], u: ["8", 2], v: ["8", 3],
+  w: ["9", 1], x: ["9", 2], y: ["9", 3], z: ["9", 4],
+};
+
+function encodeDtmfMultitap(text) {
+  return Array.from(text.toLowerCase())
+    .flatMap((char) => {
+      const [key, count] = SMOKE_MULTITAP[char];
+      return Array.from({ length: count }, () => SMOKE_DTMF_COMBINED[key]).concat("2418");
+    })
+    .join("");
+}
+
+function createAlphabetToneWav(filePath, message, toneMs = 75, sampleRate = 8000) {
+  const sequence = `abcdefghijklmnopqrstuvwxyz${message}`;
+  const samplesPerTone = Math.round((sampleRate * toneMs) / 1000);
+  const data = Buffer.alloc(sequence.length * samplesPerTone * 2);
+  let sampleIndex = 0;
+  for (const char of sequence) {
+    const frequency = 500 + (char.charCodeAt(0) - 97) * 50;
+    for (let index = 0; index < samplesPerTone; index += 1) {
+      const value = Math.round(Math.sin((2 * Math.PI * frequency * index) / sampleRate) * 22000);
+      data.writeInt16LE(value, sampleIndex * 2);
+      sampleIndex += 1;
+    }
+  }
+  const wav = Buffer.alloc(44 + data.length);
+  wav.write("RIFF", 0);
+  wav.writeUInt32LE(36 + data.length, 4);
+  wav.write("WAVEfmt ", 8);
+  wav.writeUInt32LE(16, 16);
+  wav.writeUInt16LE(1, 20);
+  wav.writeUInt16LE(1, 22);
+  wav.writeUInt32LE(sampleRate, 24);
+  wav.writeUInt32LE(sampleRate * 2, 28);
+  wav.writeUInt16LE(2, 32);
+  wav.writeUInt16LE(16, 34);
+  wav.write("data", 36);
+  wav.writeUInt32LE(data.length, 40);
+  data.copy(wav, 44);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, wav);
+  return filePath;
+}
+
+function createInterleavedPngFixture(filePath, blockSize = 256) {
+  const images = [35, 95, 155].map((color) => {
+    const png = new PNG({ width: 64, height: 64 });
+    for (let index = 0; index < png.data.length; index += 4) {
+      const pixel = index / 4;
+      png.data[index] = (color + pixel * 17) & 0xff;
+      png.data[index + 1] = (170 + pixel * 31) & 0xff;
+      png.data[index + 2] = (120 + pixel * 47) & 0xff;
+      png.data[index + 3] = 255;
+    }
+    const encoded = PNG.sync.write(png);
+    const paddedLength = Math.ceil(encoded.length / blockSize) * blockSize;
+    return Buffer.concat([encoded, Buffer.alloc(paddedLength - encoded.length)]);
+  });
+  const blocks = [];
+  const blockCount = Math.max(...images.map((image) => image.length / blockSize));
+  for (let block = 0; block < blockCount; block += 1) {
+    images.forEach((image) => blocks.push(image.subarray(block * blockSize, (block + 1) * blockSize)));
+  }
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, Buffer.concat(blocks));
+  return filePath;
+}
+
 function collectFlags(result) {
   return (result.flagCandidates || []).map((item) => item.value);
 }
@@ -66,6 +155,31 @@ async function runNoFlagCase(root, name, payload) {
     name,
     status: result.solver?.status,
     primaryFlag: result.solver?.primaryFlag?.value,
+    actionsRun: result.solver?.actionsRun,
+    artifacts: result.challenge?.artifactCount,
+  };
+}
+
+async function runInterleavedRecoveryCase(root, fixturePath) {
+  const outputRoot = path.join(root, "interleaved-png-recovery-out");
+  const result = await analyzeChallenge(
+    {
+      title: "interleaved PNG recovery smoke",
+      description: "Recover several files distributed in round-robin fixed-size blocks.",
+      artifacts: [fixturePath],
+    },
+    outputRoot,
+  );
+  const recoveryLog = result.pipelineLog.find((item) => item.actionId === "recover-interleaved-files");
+  const recoveredPngs = recoveryLog?.createdArtifacts?.filter((item) => /interleaved-\d+\.png$/i.test(item.name)) || [];
+  const contactSheet = recoveryLog?.createdArtifacts?.find((item) => /contact-sheet\.png$/i.test(item.name));
+  if (recoveredPngs.length !== 3 || !contactSheet) {
+    throw new Error(`case interleaved-png-recovery: expected three PNGs and contact sheet, got ${JSON.stringify(recoveryLog, null, 2)}`);
+  }
+  recoveredPngs.forEach((item) => PNG.sync.read(fs.readFileSync(item.path)));
+  return {
+    name: "interleaved-png-recovery",
+    status: result.solver?.status,
     actionsRun: result.solver?.actionsRun,
     artifacts: result.challenge?.artifactCount,
   };
@@ -1178,6 +1292,55 @@ async function main() {
       artifacts: [placeholderPath],
     }),
   );
+
+  const randomFlagPath = writeText(
+    path.join(root, "input", "random-braces.txt"),
+    "zzz{zzzzzz}\n74Ea{`qp9Df}\nNjpkz{2Omvqk~}\nlmv{rr>3[p}\n",
+  );
+  results.push(
+    await runNoFlagCase(root, "random-flag-shape-filter", {
+      title: "random transformed brace text",
+      description: "Low-diversity and punctuation-heavy transformed strings must not mark a task solved.",
+      artifacts: [randomFlagPath],
+    }),
+  );
+
+  const dtmfMessage = "onlyninetieskidswillrememberthis";
+  const dtmfFlag = `FLAG{${dtmfMessage}}`;
+  const dtmfPath = writeText(path.join(root, "input", "dtmf-combined.txt"), `${encodeDtmfMultitap(dtmfMessage)}\n`);
+  results.push(
+    await runCase(
+      root,
+      "dtmf-combined-multitap",
+      {
+        title: "DTMF combined-frequency smoke",
+        description: "Decode the alphanumeric message and wrap it in `FLAG{}`.",
+        artifacts: [dtmfPath],
+      },
+      dtmfFlag,
+    ),
+  );
+
+  const alphabetToneFlag = "flag{tonealphabetwavesmoke}";
+  const alphabetTonePath = createAlphabetToneWav(
+    path.join(root, "input", "alphabet-tones.wav"),
+    "flagopenbrackettonealphabetwavesmokeclosebracket",
+  );
+  results.push(
+    await runCase(
+      root,
+      "wav-alphabet-tone-map",
+      {
+        title: "WAV alphabet tone mapping smoke",
+        description: "Use the leading alphabet tones as the decode key.",
+        artifacts: [alphabetTonePath],
+      },
+      alphabetToneFlag,
+    ),
+  );
+
+  const interleavedPngPath = createInterleavedPngFixture(path.join(root, "input", "interleaved.png"));
+  results.push(await runInterleavedRecoveryCase(root, interleavedPngPath));
 
   const usbFlag = "flag{usb_hid_smoke}";
   const usbPcapPath = createUsbKeyboardPcap(path.join(root, "input", "usb-keyboard.pcap"), usbFlag);

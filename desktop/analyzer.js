@@ -25,6 +25,7 @@ const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
 const MAX_AUDIO_SAMPLES = 600000;
 const MAX_AUDIO_PREVIEW_SAMPLES = 180000;
 const MAX_AUDIO_ANALYSIS_SAMPLES = 320000;
+const MAX_AUDIO_TONE_SAMPLES = 4_000_000;
 const MAX_AUDIO_SPECTROGRAM_COLUMNS = 360;
 const MAX_AUDIO_SPECTROGRAM_BINS = 96;
 const BARCODE_READERS = [
@@ -102,6 +103,38 @@ const MORSE_DECODE_MAP = {
   "-....-": "-",
   "..--.-": "_",
   ".--.-.": "@",
+};
+
+const DTMF_COMBINED_MAP = {
+  1906: "1",
+  2033: "2",
+  2174: "3",
+  2330: "A",
+  1979: "4",
+  2106: "5",
+  2247: "6",
+  2403: "B",
+  2061: "7",
+  2188: "8",
+  2329: "9",
+  2485: "C",
+  2150: "*",
+  2277: "0",
+  2418: "#",
+  2574: "D",
+};
+
+const PHONE_MULTITAP_MAP = {
+  0: [" ", "0"],
+  1: [".", ",", "?", "!", "1", "-", "@", "_", "+", "#"],
+  2: ["a", "b", "c", "2", "A", "B", "C"],
+  3: ["d", "e", "f", "3", "D", "E", "F"],
+  4: ["g", "h", "i", "4", "G", "H", "I"],
+  5: ["j", "k", "l", "5", "J", "K", "L"],
+  6: ["m", "n", "o", "6", "M", "N", "O"],
+  7: ["p", "q", "r", "s", "7", "P", "Q", "R", "S"],
+  8: ["t", "u", "v", "8", "T", "U", "V"],
+  9: ["w", "x", "y", "z", "9", "W", "X", "Y", "Z"],
 };
 
 const F5_DEZIGZAG = [
@@ -224,7 +257,19 @@ const BUNDLED_TOOL_CAPABILITIES = [
     id: "ciphey-lite",
     label: "内置 ciphey-lite",
     replaces: "Ciphey",
-    purpose: "自动尝试 Base64/Base58/Base91、Hex、Base32、Ascii85/Z85、URL、Quoted-Printable、UUEncode、A1Z26、NATO、Morse、Polybius、DNA 2-bit、ROT/Caesar、Affine、Rail Fence、Bacon、Brainfuck/Ook、零宽/空白隐写、单字节 XOR 和压缩文本层。",
+    purpose: "自动尝试 Base64/Base58/Base91、Hex、Base32、Ascii85/Z85、URL、Quoted-Printable、UUEncode、DTMF 多击输入、A1Z26、NATO、Morse、Polybius、DNA 2-bit、ROT/Caesar、Affine、Rail Fence、Bacon、Brainfuck/Ook、零宽/空白隐写、单字节 XOR 和压缩文本层。",
+  },
+  {
+    id: "audio-tone-lite",
+    label: "内置音调映射器",
+    replaces: "Audacity / custom FFT scripts",
+    purpose: "检测 Morse 活动段和开头字母表音调，并在本地还原受限长度的 WAV 音调序列。",
+  },
+  {
+    id: "interleave-lite",
+    label: "内置交织文件恢复",
+    replaces: "custom file-carving scripts",
+    purpose: "恢复固定块轮转交织的多路文件，并为 PNG 自动生成文字对齐拼接图。",
   },
   {
     id: "zsteg-lite",
@@ -292,7 +337,7 @@ const CATEGORY_RULES = {
   ],
 };
 
-const KNOWN_FLAG_PREFIX = /\b(?:flag|ctf|key|answer|picoCTF|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{/i;
+const KNOWN_FLAG_PREFIX = /\b(?:flag|ctf|key|answer|ductf|picoCTF|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{/i;
 const LOOSE_FLAG_PREFIX = /\bflag\s*[:=_-]\s*[a-zA-Z0-9_\/+=-]{6,160}\b/i;
 const LOOSE_FLAG_PREFIX_GLOBAL = /\bflag\s*[:=_-]\s*[a-zA-Z0-9_\/+=-]{6,160}\b/gi;
 const NATURAL_TEXT_HINT = /\b(?:the|this|that|flag|password|secret|cookie|session|token|login|http|https|user|admin|hello|world|image|file|data|text)\b/i;
@@ -450,6 +495,15 @@ function buildPasswordCandidates(payload, filePaths = []) {
     collectPasswordHintsFromText(source).forEach((candidate) => pushPasswordCandidate(candidates, candidate));
   });
   return candidates.slice(0, MAX_PASSWORD_CANDIDATES);
+}
+
+function buildFlagPrefixHints(payload) {
+  const text = [payload.title, payload.description, payload.notes, ...(payload.tags || [])].filter(Boolean).join("\n");
+  const hints = [];
+  for (const match of text.matchAll(/\b([A-Za-z][A-Za-z0-9_]{1,31})\s*\{\s*\}/g)) {
+    hints.push(match[1]);
+  }
+  return dedupeStrings(hints).slice(0, 8);
 }
 
 function buildActionOptions(options = {}, filePath = "") {
@@ -1339,6 +1393,53 @@ function collectPolybiusDecodes(text, bucket) {
   });
 }
 
+function nearestDtmfCombinedKey(value, tolerance = 10) {
+  let best = null;
+  Object.entries(DTMF_COMBINED_MAP).forEach(([frequency, key]) => {
+    const distance = Math.abs(Number(frequency) - value);
+    if (distance <= tolerance && (!best || distance < best.distance)) {
+      best = { key, distance };
+    }
+  });
+  return best?.key || "";
+}
+
+function decodePhoneMultitap(keys) {
+  let output = "";
+  let index = 0;
+  while (index < keys.length) {
+    const key = keys[index];
+    let end = index + 1;
+    while (end < keys.length && keys[end] === key) {
+      end += 1;
+    }
+    const alphabet = PHONE_MULTITAP_MAP[key];
+    if (alphabet?.length) {
+      output += alphabet[(end - index - 1) % alphabet.length];
+    }
+    index = end;
+  }
+  return output.trim();
+}
+
+function collectDtmfCombinedDecodes(text, bucket) {
+  const compact = String(text || "").replace(/\s+/g, "");
+  if (!/^\d{32,}$/.test(compact) || compact.length % 4 !== 0) {
+    return;
+  }
+
+  const keys = [];
+  for (let index = 0; index < compact.length; index += 4) {
+    const key = nearestDtmfCombinedKey(Number(compact.slice(index, index + 4)));
+    if (!key) {
+      return;
+    }
+    keys.push(key);
+  }
+  const decoded = decodePhoneMultitap(keys.join(""));
+  addDerivedTextResult(bucket, "dtmf-multitap", "DTMF combined frequencies -> phone multitap", decoded, { scoreBoost: 2 });
+}
+
 function atbashText(text) {
   return String(text || "").replace(/[A-Za-z]/g, (char) => {
     const code = char.charCodeAt(0);
@@ -1620,6 +1721,7 @@ function smartDecodeTextContent(buffer) {
   collectZ85Decodes(text, results);
   collectMorseTextDecodes(text, results);
   collectPolybiusDecodes(text, results);
+  collectDtmfCombinedDecodes(text, results);
   collectBaconDecodes(text, results);
   collectBrainfuckDecodes(text, results);
   collectOokDecodes(text, results);
@@ -2220,6 +2322,105 @@ function scanEmbeddedSignatures(buffer, offset = 0, limit = 80) {
     .slice(0, limit);
 }
 
+function analyzeInterleavedPayload(buffer) {
+  const rootMagic = detectMagic(buffer);
+  const signature = EMBEDDED_SIGNATURES.find((item) => item.id === rootMagic);
+  if (!signature || buffer.length < 1024) {
+    return null;
+  }
+  const offsets = [0]
+    .concat(scanEmbeddedSignatures(buffer, 1, 24).filter((item) => item.id === rootMagic).map((item) => item.offset))
+    .sort((left, right) => left - right);
+  const offsetSet = new Set(offsets);
+  let best = null;
+  offsets.slice(1, 8).forEach((blockSize) => {
+    if (blockSize < 64 || blockSize > 1024 * 1024) {
+      return;
+    }
+    let streamCount = 1;
+    while (streamCount < 8 && offsetSet.has(streamCount * blockSize)) {
+      streamCount += 1;
+    }
+    if (streamCount < 2 || buffer.length < blockSize * streamCount * 2) {
+      return;
+    }
+    const score = streamCount * 10 - Math.abs(blockSize - 1024) / 1024;
+    if (!best || score > best.score) {
+      best = { format: rootMagic, blockSize, streamCount, score };
+    }
+  });
+  return best;
+}
+
+function buildPngContactSheet(buffers) {
+  let images;
+  try {
+    images = buffers.map((buffer) => PNG.sync.read(buffer));
+  } catch (_error) {
+    return null;
+  }
+  const textCenters = images.map((image) => {
+    let minY = image.height;
+    let maxY = -1;
+    for (let y = 0; y < image.height; y += 1) {
+      for (let x = 0; x < image.width; x += 1) {
+        const offset = (y * image.width + x) * 4;
+        if (image.data[offset] > 220 && image.data[offset + 1] > 220 && image.data[offset + 2] > 220 && image.data[offset + 3] > 100) {
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+    return maxY >= minY ? (minY + maxY) / 2 : image.height / 2;
+  });
+  const targetCenter = Math.max(...textCenters);
+  const rawOffsets = textCenters.map((center) => Math.round(targetCenter - center));
+  const minimumOffset = Math.min(...rawOffsets);
+  const yOffsets = rawOffsets.map((offset) => offset - minimumOffset);
+  const width = images.reduce((sum, image) => sum + image.width, 0);
+  const height = Math.max(...images.map((image, index) => image.height + yOffsets[index]));
+  if (!width || !height || width * height > 16_000_000) {
+    return null;
+  }
+  const output = new PNG({ width, height });
+  output.data.fill(255);
+  let xOffset = 0;
+  images.forEach((image, imageIndex) => {
+    for (let y = 0; y < image.height; y += 1) {
+      const sourceStart = y * image.width * 4;
+      const targetStart = ((y + yOffsets[imageIndex]) * width + xOffset) * 4;
+      image.data.copy(output.data, targetStart, sourceStart, sourceStart + image.width * 4);
+    }
+    xOffset += image.width;
+  });
+  return PNG.sync.write(output);
+}
+
+function trimRecoveredPayload(buffer, format) {
+  if (format === "png" && buffer.length >= 12) {
+    let offset = 8;
+    while (offset + 12 <= buffer.length) {
+      const length = buffer.readUInt32BE(offset);
+      const type = buffer.subarray(offset + 4, offset + 8).toString("ascii");
+      const end = offset + 12 + length;
+      if (end > buffer.length) {
+        break;
+      }
+      if (type === "IEND") {
+        return buffer.subarray(0, end);
+      }
+      offset = end;
+    }
+  }
+  if (format === "jpeg") {
+    const end = buffer.indexOf(Buffer.from([0xff, 0xd9]), 2);
+    if (end !== -1) {
+      return buffer.subarray(0, end + 2);
+    }
+  }
+  return buffer;
+}
+
 function normalizeText(value) {
   return String(value || "").toLowerCase();
 }
@@ -2428,13 +2629,36 @@ function containsPlaceholderFlag(text) {
   const normalized = String(text || "")
     .replace(/4/g, "a")
     .replace(/3/g, "e");
-  return /(?:fake|dummy|placeholder|example|sample|test)[-_ ]?flag|flag[-_ ]?(?:fake|dummy|placeholder|example|sample|test)/i.test(normalized);
+  return (
+    /(?:fake|dummy|placeholder|example|sample|test)[-_ ]?flag|flag[-_ ]?(?:fake|dummy|placeholder|example|sample|test)/i.test(normalized) ||
+    /\{(?:some[_ -]?text|your[_ -]?username|firstname[_ -]?surname|\.{3,})\}/i.test(normalized)
+  );
+}
+
+function isLowQualityFlagShape(value) {
+  const match = /^([A-Za-z0-9_]{2,32})\{([^{}\r\n]{3,160})\}$/.exec(String(value || ""));
+  if (!match) {
+    return false;
+  }
+  const body = match[2];
+  if (!KNOWN_FLAG_PREFIX.test(value) && body.length < 6) {
+    return true;
+  }
+  const compact = body.replace(/[^A-Za-z0-9]/g, "");
+  const unique = new Set(compact.toLowerCase()).size;
+  const mostCommon = compact
+    ? Math.max(...Array.from(new Set(compact)).map((char) => compact.split(char).length - 1)) / compact.length
+    : 1;
+  if (compact.length >= 5 && (unique <= 2 || mostCommon >= 0.78)) {
+    return true;
+  }
+  return /[`~<>\[\]\\]/.test(body) || compact.length / body.length < 0.58;
 }
 
 function findFlagCandidates(text, source) {
   const candidates = [];
   const patterns = [
-    /\b(?:flag|ctf|key|answer|picoCTF|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{[^{}\r\n]{3,160}\}/gi,
+    /\b(?:flag|ctf|key|answer|ductf|picoCTF|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{[^{}\r\n]{3,160}\}/gi,
     /\b[a-zA-Z0-9_]{2,32}\{[^{}\r\n]{3,160}\}/g,
     LOOSE_FLAG_PREFIX_GLOBAL,
   ];
@@ -2446,6 +2670,9 @@ function findFlagCandidates(text, source) {
         continue;
       }
       if (containsPlaceholderFlag(value)) {
+        continue;
+      }
+      if (isLowQualityFlagShape(value)) {
         continue;
       }
       if (/[^\x20-\x7e]/.test(value)) {
@@ -2946,6 +3173,106 @@ function estimateToneFrequency(samples, sampleRate) {
   return frequency;
 }
 
+function goertzelPower(samples, start, length, sampleRate, frequency) {
+  const omega = (2 * Math.PI * frequency) / sampleRate;
+  const coefficient = 2 * Math.cos(omega);
+  let previous = 0;
+  let previousPrevious = 0;
+  for (let index = 0; index < length; index += 1) {
+    const sample = samples[start + index] || 0;
+    const current = sample + coefficient * previous - previousPrevious;
+    previousPrevious = previous;
+    previous = current;
+  }
+  return previousPrevious * previousPrevious + previous * previous - coefficient * previous * previousPrevious;
+}
+
+function dominantGoertzelFrequency(samples, start, length, sampleRate, frequencies) {
+  let bestFrequency = 0;
+  let bestPower = -1;
+  frequencies.forEach((frequency) => {
+    const power = goertzelPower(samples, start, length, sampleRate, frequency);
+    if (power > bestPower) {
+      bestPower = power;
+      bestFrequency = frequency;
+    }
+  });
+  return bestFrequency;
+}
+
+function normalizeSpokenFlagBrackets(text) {
+  return String(text || "")
+    .replace(/(?:open|left)(?:curly)?(?:bracket|brace)/gi, "{")
+    .replace(/(?:close|right)(?:curly)?(?:bracket|brace)/gi, "}")
+    .replace(/underscore/gi, "_")
+    .replace(/(flag|ductf|picoctf|uoftctf|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{/gi, "\n$1{");
+}
+
+function decodeAlphabetToneWav(buffer, wavInfo) {
+  const track = extractMonoAudioTrack(buffer, wavInfo, MAX_AUDIO_TONE_SAMPLES);
+  if (!track || track.sourceStep !== 1 || track.samples.length < track.sampleRate * 1.5 || track.sampleRate < 2000) {
+    return null;
+  }
+
+  const frequencyGrid = [];
+  for (let frequency = 200; frequency <= Math.min(3800, track.sampleRate / 2 - 40); frequency += 25) {
+    frequencyGrid.push(frequency);
+  }
+
+  let best = null;
+  for (let durationMs = 40; durationMs <= 220; durationMs += 5) {
+    const chunkLength = Math.round((track.sampleRate * durationMs) / 1000);
+    if (chunkLength < 32 || chunkLength * 26 > track.samples.length) {
+      continue;
+    }
+    const training = [];
+    for (let index = 0; index < 26; index += 1) {
+      training.push(dominantGoertzelFrequency(track.samples, index * chunkLength, chunkLength, track.sampleRate, frequencyGrid));
+    }
+    const deltas = training.slice(1).map((value, index) => value - training[index]);
+    const rising = deltas.filter((value) => value > 0).length;
+    const unique = new Set(training).size;
+    const medianDelta = computePercentile(deltas.filter((value) => value > 0), 0.5);
+    const regular = deltas.filter((value) => medianDelta > 0 && Math.abs(value - medianDelta) <= Math.max(25, medianDelta * 0.45)).length;
+    const score = rising * 2 + unique + regular;
+    if (!best || score > best.score) {
+      best = { durationMs, chunkLength, training, rising, unique, regular, score };
+    }
+  }
+
+  if (!best || best.rising < 23 || best.unique < 23 || best.regular < 20) {
+    return null;
+  }
+
+  const characters = "abcdefghijklmnopqrstuvwxyz";
+  const maxChunks = Math.min(12000, Math.floor(track.samples.length / best.chunkLength));
+  let decoded = "";
+  for (let index = 0; index < maxChunks; index += 1) {
+    const frequency = dominantGoertzelFrequency(
+      track.samples,
+      index * best.chunkLength,
+      best.chunkLength,
+      track.sampleRate,
+      best.training,
+    );
+    const letterIndex = best.training.indexOf(frequency);
+    decoded += letterIndex >= 0 ? characters[letterIndex] : "?";
+  }
+
+  const normalized = normalizeSpokenFlagBrackets(decoded);
+  const flags = findFlagCandidates(normalized, "WAV alphabet tone mapping");
+  if (!flags.length && !NATURAL_TEXT_HINT.test(normalized)) {
+    return null;
+  }
+  return {
+    durationMs: best.durationMs,
+    trainingFrequencies: best.training,
+    decoded,
+    normalized,
+    flags,
+  };
+}
+
 function summarizeDominantFrequencies(segments) {
   const buckets = new Map();
   segments.forEach((segment) => {
@@ -3115,6 +3442,7 @@ function analyzeWavSignal(buffer, wavInfo, options = {}) {
 
   const dominantFrequencies = summarizeDominantFrequencies(activeSegments);
   const morseCandidates = decodeMorseFromRuns(runs);
+  const alphabetTone = options.decodeAlphabet === false ? null : decodeAlphabetToneWav(buffer, wavInfo);
 
   return {
     sampleRate: track.sampleRate,
@@ -3122,6 +3450,7 @@ function analyzeWavSignal(buffer, wavInfo, options = {}) {
     activeSegments,
     dominantFrequencies,
     morseCandidates,
+    alphabetTone,
   };
 }
 
@@ -6709,6 +7038,7 @@ async function buildArtifactSignals(filePath) {
   let mp4Report = null;
   let pngDimensionReport = null;
   let signalReport = null;
+  const interleavedPayload = analyzeInterleavedPayload(buffer);
   if ([".vcd", ".csv", ".asc", ".log", ".txt"].includes(extension)) {
     try {
       signalReport = analyzeSignalArtifact(buffer, extension);
@@ -6739,7 +7069,7 @@ async function buildArtifactSignals(filePath) {
     try {
       wavInfo = parseWavBuffer(buffer);
       audioLSB = wavInfo ? collectAudioLSBCandidates(buffer, wavInfo) : [];
-      audioSignal = wavInfo ? analyzeWavSignal(buffer, wavInfo, { maxSamples: MAX_AUDIO_PREVIEW_SAMPLES }) : null;
+      audioSignal = wavInfo ? analyzeWavSignal(buffer, wavInfo, { maxSamples: MAX_AUDIO_PREVIEW_SAMPLES, decodeAlphabet: false }) : null;
     } catch (_error) {
       wavInfo = null;
       audioLSB = [];
@@ -6872,6 +7202,16 @@ async function buildArtifactSignals(filePath) {
       artifact.actions.push({
         id: "extract-appended-payloads",
         label: "\u63d0\u53d6\u9644\u52a0\u8d44\u6599",
+      });
+    }
+    if (interleavedPayload) {
+      artifact.highlights.push(
+        `\u68c0\u6d4b\u5230 ${interleavedPayload.streamCount} \u8def\u56fa\u5b9a\u5757\u4ea4\u7ec7 ${interleavedPayload.format.toUpperCase()} \u6570\u636e\uff0c\u5757\u5927\u5c0f ${interleavedPayload.blockSize} B\u3002`,
+      );
+      artifact.keywords.push("interleaved", "carved", interleavedPayload.format);
+      artifact.actions.push({
+        id: "recover-interleaved-files",
+        label: "\u6062\u590d\u4ea4\u7ec7\u6587\u4ef6",
       });
     }
     if (qrPayload) {
@@ -7614,8 +7954,14 @@ function scoreFlagCandidate(candidate) {
   if (KNOWN_FLAG_PREFIX.test(value)) {
     score += 0.22;
   }
+  if (/^[A-Z][A-Z0-9_]{1,15}\{/.test(value)) {
+    score += 0.12;
+  }
   if (/^(?:flag|ctf|picoctf)\{/i.test(value)) {
     score += 0.08;
+  }
+  if (/^(?:flag|ctf|key|answer)[-_:]/i.test(value)) {
+    score += 0.18;
   }
   if (/metadata|strings|lsb|png|jpeg|http|dns|ciphey|zsteg|binwalk|text|payload/i.test(source)) {
     score += 0.04;
@@ -7631,6 +7977,9 @@ function scoreFlagCandidate(candidate) {
   }
   if (value.length > 180 || /\s{2,}/.test(value)) {
     score -= 0.18;
+  }
+  if (isLowQualityFlagShape(value)) {
+    score -= 0.5;
   }
 
   return Math.max(0.25, Math.min(0.98, score));
@@ -7818,7 +8167,7 @@ function buildSolverResult(artifacts, flagCandidates, pipelineLog, pipelineError
   const installedToolCount = (toolStatus?.installed || []).length;
   const nextActions = [];
 
-  if (primaryFlag && primaryFlag.score >= 0.5) {
+  if (primaryFlag && primaryFlag.score >= 0.72) {
     nextActions.push("验证候选 flag 的来源文件和格式，确认是否可直接提交。");
     if (rankedCandidates.length > 1) {
       nextActions.push("存在多个候选值时，优先选择格式更完整、来源更直接的结果。");
@@ -7978,6 +8327,45 @@ function extractAppendedPayloads(filePath, outputRoot) {
 
   return {
     message: "\u5df2\u63d0\u53d6\u9644\u52a0\u8d44\u6599\u5e76\u7ee7\u7eed\u7eb3\u5165\u5206\u6790\u3002",
+    createdFiles,
+  };
+}
+
+function recoverInterleavedFiles(filePath, outputRoot) {
+  const buffer = fs.readFileSync(filePath);
+  const report = analyzeInterleavedPayload(buffer);
+  if (!report) {
+    throw new Error("\u6ca1\u6709\u8bc6\u522b\u5230\u56fa\u5b9a\u5757\u8f6e\u8f6c\u4ea4\u7ec7\u7684\u591a\u6587\u4ef6\u6570\u636e\u3002");
+  }
+  const chunks = Array.from({ length: report.streamCount }, () => []);
+  for (let offset = 0, index = 0; offset < buffer.length; offset += report.blockSize, index += 1) {
+    chunks[index % report.streamCount].push(buffer.subarray(offset, Math.min(buffer.length, offset + report.blockSize)));
+  }
+  const recovered = chunks.map((parts) => trimRecoveredPayload(Buffer.concat(parts), report.format));
+  const extension = EMBEDDED_SIGNATURES.find((item) => item.id === report.format)?.ext || ".bin";
+  const baseName = sanitizeSegment(path.parse(filePath).name);
+  const createdFiles = recovered.map((content, index) =>
+    writeGeneratedFile(outputRoot, `${baseName}-interleaved-${index + 1}${extension}`, content),
+  );
+  if (report.format === "png") {
+    const contactSheet = buildPngContactSheet(recovered);
+    if (contactSheet) {
+      createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-interleaved-contact-sheet.png`, contactSheet));
+    }
+  }
+  const summary = [
+    "# INTERLEAVED FILE RECOVERY",
+    `file: ${path.basename(filePath)}`,
+    `format: ${report.format}`,
+    `block-size: ${report.blockSize}`,
+    `streams: ${report.streamCount}`,
+    "",
+    ...createdFiles.map((item) => path.basename(item)),
+    "",
+  ];
+  createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-interleaved-report.txt`, summary.join("\n")));
+  return {
+    message: `\u5df2\u6309 ${report.blockSize} B \u56fa\u5b9a\u5757\u8f6e\u8f6c\u6062\u590d ${report.streamCount} \u8def ${report.format.toUpperCase()} \u6587\u4ef6\u3002`,
     createdFiles,
   };
 }
@@ -8466,7 +8854,21 @@ function extractApkPackage(filePath, outputRoot) {
   };
 }
 
-function decodeEncodedText(filePath, outputRoot) {
+function wrapDecodedValuesWithFlagHints(decoded, flagPrefixHints = []) {
+  const wrapped = [];
+  decoded.forEach((item) => {
+    const value = String(item.value || "").trim();
+    if (!/^[A-Za-z0-9_!@#$%+=.-]{6,160}$/.test(value) || value.includes("{")) {
+      return;
+    }
+    flagPrefixHints.forEach((prefix) => {
+      wrapped.push(`${prefix}{${value}}`);
+    });
+  });
+  return dedupeStrings(wrapped);
+}
+
+function decodeEncodedText(filePath, outputRoot, options = {}) {
   const buffer = fs.readFileSync(filePath);
   const decoded = smartDecodeTextContent(buffer);
 
@@ -8477,6 +8879,10 @@ function decodeEncodedText(filePath, outputRoot) {
   const sections = decoded.map((item, index) => {
     return `# ${item.label || item.type.toUpperCase()} ${index + 1}\n${item.value}\n`;
   });
+  const wrapped = wrapDecodedValuesWithFlagHints(decoded, options.flagPrefixHints || []);
+  if (wrapped.length) {
+    sections.push(`# FLAG FORMAT HINTS\n${wrapped.join("\n")}\n`);
+  }
   const generatedName = `${sanitizeSegment(path.parse(filePath).name)}-decoded.txt`;
   const outPath = writeGeneratedFile(outputRoot, generatedName, sections.join("\n"));
   return {
@@ -9002,6 +9408,16 @@ function buildAudioSummaryText(fileName, wavInfo, lsbCandidates, audioSignal, st
         lines.push("");
       });
     }
+    if (audioSignal.alphabetTone) {
+      lines.push("# ALPHABET TONE MAPPING");
+      lines.push(`tone-duration: ${audioSignal.alphabetTone.durationMs} ms`);
+      lines.push(`frequencies: ${audioSignal.alphabetTone.trainingFrequencies.join(", ")}`);
+      lines.push(audioSignal.alphabetTone.decoded);
+      if (audioSignal.alphabetTone.normalized !== audioSignal.alphabetTone.decoded) {
+        lines.push(audioSignal.alphabetTone.normalized);
+      }
+      lines.push("");
+    }
   }
   if (strings.length) {
     lines.push("# STRINGS PREVIEW");
@@ -9028,9 +9444,14 @@ function extractAudioClues(filePath, outputRoot) {
   const wavInfo = parseWavBuffer(buffer);
   const lsbCandidates = wavInfo ? collectAudioLSBCandidates(buffer, wavInfo) : [];
   const audioSignal = wavInfo ? analyzeWavSignal(buffer, wavInfo, { maxSamples: MAX_AUDIO_ANALYSIS_SAMPLES }) : null;
+  if (audioSignal && !audioSignal.alphabetTone) {
+    audioSignal.alphabetTone = decodeAlphabetToneWav(buffer, wavInfo);
+  }
   const strings = dedupeStrings(extractAsciiStrings(buffer, 6, 1200).concat(extractUnicodeStrings(buffer, 6, 400)));
 
-  const hasSignal = audioSignal && (audioSignal.activeSegments.length || audioSignal.morseCandidates.length || audioSignal.dominantFrequencies.length);
+  const hasSignal =
+    audioSignal &&
+    (audioSignal.activeSegments.length || audioSignal.morseCandidates.length || audioSignal.dominantFrequencies.length || audioSignal.alphabetTone);
   if (!wavInfo && !lsbCandidates.length && !strings.length && !hasSignal) {
     throw new Error("\u6ca1\u6709\u4ece\u97f3\u9891\u9644\u4ef6\u4e2d\u63d0\u53d6\u5230\u9ad8\u4fe1\u53f7\u7ebf\u7d22\u3002");
   }
@@ -9085,9 +9506,23 @@ function extractAudioClues(filePath, outputRoot) {
     });
     createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-audio-morse.txt`, `${morseLines.join("\n")}\n`));
   }
+  if (audioSignal?.alphabetTone) {
+    const alphabetLines = [
+      "# AUDIO ALPHABET TONE MAPPING",
+      `file: ${path.basename(filePath)}`,
+      `tone-duration: ${audioSignal.alphabetTone.durationMs} ms`,
+      `frequencies: ${audioSignal.alphabetTone.trainingFrequencies.join(", ")}`,
+      "",
+      audioSignal.alphabetTone.decoded,
+      "",
+      audioSignal.alphabetTone.normalized,
+      "",
+    ];
+    createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-audio-alphabet-tones.txt`, alphabetLines.join("\n")));
+  }
 
   return {
-    message: "\u5df2\u63d0\u53d6 WAV \u5757\u4fe1\u606f\u3001strings\u3001PCM LSB\u3001\u97f3\u8c03\u5206\u6bb5\u548c Morse \u5019\u9009\u3002",
+    message: "\u5df2\u63d0\u53d6 WAV \u5757\u4fe1\u606f\u3001strings\u3001PCM LSB\u3001\u97f3\u8c03\u5206\u6bb5\u3001\u5b57\u6bcd\u8868\u97f3\u8c03\u548c Morse \u5019\u9009\u3002",
     createdFiles: dedupeStrings(createdFiles),
   };
 }
@@ -10450,6 +10885,9 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot, options
   if (actionId === "extract-appended-zip" || actionId === "extract-appended-payloads") {
     return actionId === "extract-appended-zip" ? extractAppendedZip(filePath, baseDir) : extractAppendedPayloads(filePath, baseDir);
   }
+  if (actionId === "recover-interleaved-files") {
+    return recoverInterleavedFiles(filePath, baseDir);
+  }
   if (actionId === "extract-archive") {
     return extractArchive(filePath, baseDir, options);
   }
@@ -10496,7 +10934,7 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot, options
     return extractDocumentPackage(filePath, baseDir, options);
   }
   if (actionId === "decode-encoded-text") {
-    return decodeEncodedText(filePath, baseDir);
+    return decodeEncodedText(filePath, baseDir, options);
   }
   if (actionId === "analyze-signal-data") {
     return analyzeSignalData(filePath, baseDir);
@@ -10532,6 +10970,9 @@ function shouldAutoRun(actionId, artifact) {
   }
   if (actionId === "extract-appended-zip" || actionId === "extract-appended-payloads") {
     return true;
+  }
+  if (actionId === "recover-interleaved-files") {
+    return artifact.depth === 0;
   }
   if (actionId === "extract-archive") {
     return artifact.depth < MAX_PIPELINE_DEPTH;
@@ -10707,7 +11148,8 @@ async function analyzeChallenge(payload, outputRoot) {
 
   const collection = collectPaths(payload.artifacts || []);
   const passwordCandidates = buildPasswordCandidates({ title, description, notes, tags }, collection.files);
-  const pipeline = await buildPipelineArtifacts(collection.files, outputRoot, { passwordCandidates });
+  const flagPrefixHints = buildFlagPrefixHints({ title, description, notes, tags });
+  const pipeline = await buildPipelineArtifacts(collection.files, outputRoot, { passwordCandidates, flagPrefixHints });
   const inlineFlags = [
     ...findFlagCandidates(title, "\u6807\u9898"),
     ...findFlagCandidates(description, "\u63cf\u8ff0"),

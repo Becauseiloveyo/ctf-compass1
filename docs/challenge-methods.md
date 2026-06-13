@@ -41,6 +41,7 @@
 
 - Treat it as classification first, not brute force.
 - Check whether it reduces to encoding, stego, logic, scripting, or protocol analysis.
-- For text-heavy misc, try deterministic local routes first: base encodings including Base91 and Z85, URL/quoted-printable/UUEncode, A1Z26, NATO phonetic words, Morse, Polybius, DNA 2-bit streams, Bacon, Brainfuck/Ook, ROT/Caesar/Affine/Rail Fence, XOR, zero-width characters, and whitespace stego.
-- For file-heavy misc, recurse through archives and generated artifacts before switching to manual tooling. Check PNG/BMP bit planes, modified PNG dimensions, GIF extension and image-descriptor bits, JPEG segments/DCT stego, MP4 box/chunk-table anomalies, and appended payloads before assuming the visible media is the full challenge.
+- For text-heavy misc, try deterministic local routes first: base encodings including Base91 and Z85, URL/quoted-printable/UUEncode, DTMF combined frequencies and phone multitap input, A1Z26, NATO phonetic words, Morse, Polybius, DNA 2-bit streams, Bacon, Brainfuck/Ook, ROT/Caesar/Affine/Rail Fence, XOR, zero-width characters, and whitespace stego.
+- For file-heavy misc, recurse through archives and generated artifacts before switching to manual tooling. Check PNG/BMP bit planes, fixed-block interleaving, modified PNG dimensions, GIF extension and image-descriptor bits, JPEG segments/DCT stego, MP4 box/chunk-table anomalies, and appended payloads before assuming the visible media is the full challenge.
+- For WAV tone challenges, test whether the opening sequence is a training alphabet before assuming the signal is Morse or DTMF.
 - Treat model and Pickle-style attachments as untrusted. Extract metadata, tensors, operators, and strings without importing or executing them.

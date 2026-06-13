@@ -7,6 +7,7 @@ This document records validation against recently released public CTF challenges
 - [UofTCTF 2026 public challenges](https://github.com/UofTCTF/uoftctf-2026-chals-public)
 - [Jeanne d'Hack CTF 2026](https://github.com/JeanneD-Hack-CTF/JeanneD-Hack-CTF-2026)
 - [Fennec CTF 2026 public challenges](https://github.com/Underr00ted/Fennec-CTF-2026-challenges)
+- [DownUnderCTF 2025 public challenges](https://github.com/DownUnderCTF/Challenges_2025_Public)
 
 ## Results
 
@@ -20,6 +21,10 @@ This document records validation against recently released public CTF challenges
 | Fennec CTF: EE | Hardware / VCD / SPI | Solved | Parses the VCD, identifies useful clock/data pairs, samples both edges and bit orders, applies bit reversal and single-byte XOR, and recovers the published flag. |
 | Fennec CTF: Ch1p | Hardware / logic CSV | Solved | Detects binary columns, tests common gate expressions and bit orders, and recovers the published flag from the resulting bitstream. |
 | Fennec CTF: ARMy | Pwn / AArch64 | Partial static triage | Identifies ELF64 AArch64, protections and fixed-address/GOT paths, suppresses the embedded fake flag, and exports AArch64 `ret`, branch, and `svc` gadget candidates. |
+| DownUnderCTF: Down To Modulate Frequencies! | Misc / DTMF text | Solved | Maps four-digit combined frequencies to DTMF keys, applies phone multitap decoding, reads the flag-format hint, and recovers the published flag. |
+| DownUnderCTF: BeepBeep | Misc / WAV tones | Solved | Detects the leading 26-tone alphabet, estimates the tone duration, maps the remaining signal, normalizes spoken bracket tokens, and recovers the published flag. |
+| DownUnderCTF: scrapbooking | Misc / interleaved PNG | Partial, recovery completed | Detects three round-robin 1024-byte PNG streams, reconstructs each image, trims trailing interleave padding, and generates a text-aligned contact sheet. |
+| DownUnderCTF: Fishy Website | Misc / traffic | Correctly partial | Rejects random XOR-produced brace strings instead of incorrectly marking the challenge solved; challenge-specific RC4 key recovery remains a manual gap. |
 
 ## Improvements Driven By These Challenges
 
@@ -33,6 +38,10 @@ This document records validation against recently released public CTF challenges
 - Added binary logic-CSV gate-expression enumeration.
 - Fixed non-x86 ELF Pwn analysis and added lightweight AArch64, ARM, MIPS, and RISC-V return/syscall gadget scanning.
 - Expanded leetspeak fake-flag filtering so obvious decoys do not mark a challenge solved.
+- Added DTMF combined-frequency and phone multitap decoding with challenge-provided flag-format wrapping.
+- Added bounded Goertzel-based WAV alphabet-tone mapping.
+- Added fixed-block round-robin file recovery and aligned PNG contact sheets.
+- Raised solved-state confidence and filtered low-diversity or punctuation-heavy random brace strings.
 
 ## Reproduction Notes
 

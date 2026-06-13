@@ -9,8 +9,8 @@ This project is intentionally limited to legitimate CTF training workflows:
 - classify challenge types from metadata, notes, and attached artifacts
 - extract likely flag candidates from text, ASCII / UTF-16 strings, recursive encoded content, and CJK codepoint byte projection
 - automatically unpack ZIP, GZIP, TAR, and TGZ content and continue recursive analysis
-- automatically decode base64, base58, base91, hex, base32, ascii85/Z85, URL-encoded, quoted-printable, UUEncode, binary/decimal byte streams, escaped byte text, A1Z26, NATO phonetic words, DNA 2-bit streams, single-byte XOR, ROT/Caesar, Affine, Rail Fence, Morse, Polybius, Bacon, Brainfuck/Ook, zero-width text, whitespace stego, Unicode tag text, and compressed text layers when they produce useful local results
-- automatically extract solvable image clues such as appended payloads, PNG text chunks, PNG/BMP low-bit-plane candidates, GIF comment/application/plain-text extensions, GIF image-descriptor bitstreams, and JPEG COM / XMP / APP segment payloads
+- automatically decode base64, base58, base91, hex, base32, ascii85/Z85, URL-encoded, quoted-printable, UUEncode, binary/decimal byte streams, escaped byte text, DTMF combined-frequency streams, phone multitap text, A1Z26, NATO phonetic words, DNA 2-bit streams, single-byte XOR, ROT/Caesar, Affine, Rail Fence, Morse, Polybius, Bacon, Brainfuck/Ook, zero-width text, whitespace stego, Unicode tag text, and compressed text layers when they produce useful local results
+- automatically extract solvable image clues such as appended payloads, fixed-block interleaved files, PNG text chunks, PNG/BMP low-bit-plane candidates, GIF comment/application/plain-text extensions, GIF image-descriptor bitstreams, and JPEG COM / XMP / APP segment payloads
 - automatically inspect MP4/ISO-BMFF top-level boxes and chunk-offset tables, then repair hidden trailing tracks and unsorted `stco`/`co64` tables into derived playable files
 - automatically decode QR and 1D barcode payloads from local images and export RGB / luminance / edge / JPEG-block visualization views for image-based challenges
 - automatically detect modified PNG IHDR dimensions from IDAT scanline structure and generate repaired dimension candidates
@@ -18,7 +18,7 @@ This project is intentionally limited to legitimate CTF training workflows:
 - automatically parse VCD logic-analyzer captures, CAN/candump/ASC logs, and binary logic CSV files, trying SPI clock edges, UART 8N1 timing, I2C ACK-framed bytes, arbitration-ID payload aggregation, bit orders, gate expressions, bit reversal, and single-byte XOR
 - safely inspect ONNX, Safetensors, Pickle/Joblib, and checkpoint-style model attachments for metadata, tensors, operators, prompt strings, and unsafe deserialization indicators without executing model content
 - automatically extract PDF metadata, XMP packets, readable Flate streams, and OOXML/Office package contents for recursive local analysis
-- automatically inspect WAV metadata, PCM LSB candidates, tone / morse hints, and waveform / spectrogram views for audio-based local challenges
+- automatically inspect WAV metadata, PCM LSB candidates, tone / morse hints, leading-alphabet tone maps, and waveform / spectrogram views for audio-based local challenges
 - automatically inspect ELF / PE / APK attachments, extracting headers, sections, imports / exports, symbol / relocation summaries, interpreter / shared-library hints, ELF roles, GNU Build IDs and GLIBC versions, checksec-lite protections, classic seccomp-BPF syscall policies, ELF core-dump notes/registers/mappings, risky Pwn imports, I/O/network/heap/sandbox profiles, prioritized Pwn paths, short x86/x64 ROP gadget candidates, lightweight AArch64/ARM/MIPS/RISC-V return and syscall gadgets, manifest strings, DEX method indexes, Android string-pool resources, and unpacked package contents for recursive local analysis
 - map authorized localhost and private-network Web CTF targets with bounded same-origin GET requests, extracting routes, scripts, source maps, comments, response headers, cookies, forms, error clues, and direct flag candidates
 - automatically save same-origin Web downloads and feed archives, images, captures, binaries, and other responses into the existing recursive local solver
@@ -103,7 +103,7 @@ npm run dist:dir
 
 The unpacked Windows app will be written to `release/win-unpacked/`.
 
-A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.6.0-win-x64.zip`.
+A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.6.1-win-x64.zip`.
 
 Run local analyzer regressions:
 
