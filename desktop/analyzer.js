@@ -17,13 +17,15 @@ const MAX_ARCHIVE_ENTRIES = 80;
 const MAX_ARCHIVE_TOTAL_BYTES = 32 * 1024 * 1024;
 const MAX_PIPELINE_DEPTH = 5;
 const MAX_TRAFFIC_BYTES = 24 * 1024 * 1024;
-const MAX_TRAFFIC_FRAMES = 12000;
+const MAX_TRAFFIC_FRAMES = 180000;
 const MAX_HTTP_OBJECTS = 24;
 const MAX_HTTP_BODY_BYTES = 512 * 1024;
 const MAX_AUDIO_BYTES = 12 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 64 * 1024 * 1024;
 const MAX_AUDIO_SAMPLES = 600000;
 const MAX_AUDIO_PREVIEW_SAMPLES = 180000;
 const MAX_AUDIO_ANALYSIS_SAMPLES = 320000;
+const MAX_AUDIO_TONE_SAMPLES = 4_000_000;
 const MAX_AUDIO_SPECTROGRAM_COLUMNS = 360;
 const MAX_AUDIO_SPECTROGRAM_BINS = 96;
 const BARCODE_READERS = [
@@ -103,6 +105,38 @@ const MORSE_DECODE_MAP = {
   ".--.-.": "@",
 };
 
+const DTMF_COMBINED_MAP = {
+  1906: "1",
+  2033: "2",
+  2174: "3",
+  2330: "A",
+  1979: "4",
+  2106: "5",
+  2247: "6",
+  2403: "B",
+  2061: "7",
+  2188: "8",
+  2329: "9",
+  2485: "C",
+  2150: "*",
+  2277: "0",
+  2418: "#",
+  2574: "D",
+};
+
+const PHONE_MULTITAP_MAP = {
+  0: [" ", "0"],
+  1: [".", ",", "?", "!", "1", "-", "@", "_", "+", "#"],
+  2: ["a", "b", "c", "2", "A", "B", "C"],
+  3: ["d", "e", "f", "3", "D", "E", "F"],
+  4: ["g", "h", "i", "4", "G", "H", "I"],
+  5: ["j", "k", "l", "5", "J", "K", "L"],
+  6: ["m", "n", "o", "6", "M", "N", "O"],
+  7: ["p", "q", "r", "s", "7", "P", "Q", "R", "S"],
+  8: ["t", "u", "v", "8", "T", "U", "V"],
+  9: ["w", "x", "y", "z", "9", "W", "X", "Y", "Z"],
+};
+
 const F5_DEZIGZAG = [
   0, 1, 5, 6, 14, 15, 27, 28, 2, 4, 7, 13, 16, 26, 29, 42,
   3, 8, 12, 17, 25, 30, 41, 43, 9, 11, 18, 24, 31, 40, 44, 53,
@@ -143,6 +177,7 @@ const COPY = {
     text: "\u6587\u672c",
     image: "\u56fe\u50cf",
     audio: "\u97f3\u9891",
+    video: "\u89c6\u9891",
     network: "\u6d41\u91cf",
     archive: "\u538b\u7f29\u5305",
     binary: "\u4e8c\u8fdb\u5236",
@@ -201,6 +236,12 @@ const COPY = {
 
 const BUNDLED_TOOL_CAPABILITIES = [
   {
+    id: "signal-lite",
+    label: "内置信号分析器",
+    replaces: "PulseView / VCDVCD basic",
+    purpose: "解析 VCD 逻辑波形与二值 CSV，自动尝试 SPI 边沿采样、常见位序、门电路组合、位反转和单字节 XOR。",
+  },
+  {
     id: "strings-lite",
     label: "内置 strings-lite",
     replaces: "strings",
@@ -210,19 +251,31 @@ const BUNDLED_TOOL_CAPABILITIES = [
     id: "binwalk-lite",
     label: "内置 binwalk-lite",
     replaces: "binwalk scan",
-    purpose: "按魔数扫描 ZIP、GZIP、PNG、PDF、ELF、7Z、RAR 等嵌入载荷并递归提取。",
+    purpose: "按魔数扫描 ZIP、GZIP、TAR、PNG、PDF、ELF、7Z、RAR 等载荷，并递归解包 ZIP/GZIP/TAR/TGZ。",
   },
   {
     id: "ciphey-lite",
     label: "内置 ciphey-lite",
     replaces: "Ciphey",
-    purpose: "自动尝试 Base64/Base58、Hex、Base32、Ascii85、URL、二进制/十进制字节、ROT/Caesar、Bacon、Brainfuck、零宽/空白隐写、单字节 XOR 和压缩文本层。",
+    purpose: "自动尝试 Base64/Base58/Base91、Hex、Base32、Ascii85/Z85、URL、Quoted-Printable、UUEncode、DTMF 多击输入、A1Z26、NATO、Morse、Polybius、DNA 2-bit、ROT/Caesar、Affine、Rail Fence、Bacon、Brainfuck/Ook、零宽/空白隐写、单字节 XOR 和压缩文本层。",
+  },
+  {
+    id: "audio-tone-lite",
+    label: "内置音调映射器",
+    replaces: "Audacity / custom FFT scripts",
+    purpose: "检测 Morse 活动段和开头字母表音调，并在本地还原受限长度的 WAV 音调序列。",
+  },
+  {
+    id: "interleave-lite",
+    label: "内置交织文件恢复",
+    replaces: "custom file-carving scripts",
+    purpose: "恢复固定块轮转交织的多路文件，并为 PNG 自动生成文字对齐拼接图。",
   },
   {
     id: "zsteg-lite",
     label: "内置 zsteg-lite",
     replaces: "zsteg",
-    purpose: "扫描 PNG 文本块与常见 RGB/RGBA 低位平面可读文本候选。",
+    purpose: "扫描 PNG 文本块、PNG/BMP 常见 RGB/RGBA 低位平面，以及 GIF 扩展文本候选。",
   },
   {
     id: "f5-jpeg-lite",
@@ -237,27 +290,63 @@ const BUNDLED_TOOL_CAPABILITIES = [
     purpose: "离线解析 pcap/pcapng 基础帧、HTTP、DNS、TLS SNI、Cookie/Token 和 HTTP 对象。",
   },
   {
+    id: "pwn-lite",
+    label: "内置 checksec/ROP-lite",
+    replaces: "checksec / ROPgadget subset",
+    purpose: "静态分析 ELF 的 NX、PIE、RELRO、Canary、Fortify、Stripped、风险函数和常见 x86/x64 短 ROP gadget。",
+  },
+  {
     id: "binary-lite",
     label: "内置 rabin2/exif-lite",
     replaces: "rabin2 / exiftool subset",
-    purpose: "解析 ELF/PE/APK/PDF/WAV/JPEG/PNG 的关键结构和元数据线索。",
+    purpose: "解析 ELF/PE/APK/PDF/WAV/JPEG/PNG 的关键结构，并提供 ELF checksec-lite、Pwn 风险函数和短 ROP gadget 线索。",
   },
 ];
 
 const CATEGORY_RULES = {
   crypto: ["rsa", "aes", "xor", "cipher", "nonce", "modulus", "prime", "decrypt", "encrypt", "base64", "hex"],
   web: ["http", "https", "cookie", "session", "jwt", "request", "route", "upload", "template", "csrf", "xss", "sql", "login"],
-  reverse: ["binary", "elf", "pe32", "exe", "dll", "ghidra", "ida", "strings", "disasm", "symbol", "apk", "java"],
-  pwn: ["overflow", "heap", "rop", "libc", "canary", "format string", "uaf", "fastbin", "tcache", "stack smashing"],
+  reverse: ["binary", "elf", "pe32", "exe", "dll", "ghidra", "ida", "strings", "disasm", "symbol", "apk", "java", "onnx", "safetensors", "model reverse"],
+  pwn: ["pwn", "overflow", "heap", "rop", "libc", "canary", "format string", "uaf", "fastbin", "tcache", "stack smashing"],
   forensic: ["pcap", "pcapng", "traffic", "dns", "http", "memory", "disk", "metadata", "artifact", "timeline", "capture"],
-  misc: ["stego", "steganography", "puzzle", "logic", "encoding", "qr", "audio", "image", "hidden", "zip"],
+  misc: [
+    "stego",
+    "steganography",
+    "puzzle",
+    "logic",
+    "hardware",
+    "vcd",
+    "spi",
+    "uart",
+    "logic analyzer",
+    "encoding",
+    "qr",
+    "audio",
+    "image",
+    "hidden",
+    "zip",
+    "video",
+    "mp4",
+    "container",
+    "track",
+    "chunk",
+    "stco",
+    "co64",
+    "prompt injection",
+    "ai security",
+  ],
 };
 
-const KNOWN_FLAG_PREFIX = /\b(?:flag|ctf|key|answer|picoCTF|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{/i;
+const KNOWN_FLAG_PREFIX = /\b(?:flag|ctf|key|answer|ductf|uoftctf|picoCTF|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{/i;
 const LOOSE_FLAG_PREFIX = /\bflag\s*[:=_-]\s*[a-zA-Z0-9_\/+=-]{6,160}\b/i;
 const LOOSE_FLAG_PREFIX_GLOBAL = /\bflag\s*[:=_-]\s*[a-zA-Z0-9_\/+=-]{6,160}\b/gi;
 const NATURAL_TEXT_HINT = /\b(?:the|this|that|flag|password|secret|cookie|session|token|login|http|https|user|admin|hello|world|image|file|data|text)\b/i;
 const OFFICE_DOCUMENT_EXTENSIONS = [".docx", ".xlsx", ".pptx", ".docm", ".xlsm", ".pptm", ".odt", ".ods", ".odp"];
+const MODEL_EXTENSIONS = [".onnx", ".safetensors", ".pkl", ".pickle", ".joblib", ".pt", ".pth", ".ckpt"];
+const DISK_IMAGE_EXTENSIONS = [".img", ".dd", ".raw", ".vhd", ".vhdx", ".e01"];
+const MEMORY_IMAGE_EXTENSIONS = [".mem", ".dmp", ".vmem"];
+const MAX_FORENSIC_SCAN_BYTES = 64 * 1024 * 1024;
+const MAX_EXPORTED_PARTITION_BYTES = 32 * 1024 * 1024;
 
 function formatBytes(size) {
   if (size < 1024) {
@@ -311,7 +400,7 @@ function safeArchivePath(entryName) {
   return entryName
     .split(/[\\/]+/)
     .filter(Boolean)
-    .map((segment) => sanitizeSegment(segment) || "_")
+    .map((segment) => (segment === "." || segment === ".." ? "_" : sanitizeSegment(segment) || "_"))
     .join(path.sep);
 }
 
@@ -410,6 +499,15 @@ function buildPasswordCandidates(payload, filePaths = []) {
     collectPasswordHintsFromText(source).forEach((candidate) => pushPasswordCandidate(candidates, candidate));
   });
   return candidates.slice(0, MAX_PASSWORD_CANDIDATES);
+}
+
+function buildFlagPrefixHints(payload) {
+  const text = [payload.title, payload.description, payload.notes, ...(payload.tags || [])].filter(Boolean).join("\n");
+  const hints = [];
+  for (const match of text.matchAll(/\b([A-Za-z][A-Za-z0-9_]{1,31})\s*\{\s*\}/g)) {
+    hints.push(match[1]);
+  }
+  return dedupeStrings(hints).slice(0, 8);
 }
 
 function buildActionOptions(options = {}, filePath = "") {
@@ -529,6 +627,69 @@ function base58Decode(value) {
   return Buffer.from(bytes);
 }
 
+function base91Decode(value) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789!#$%&()*+,./:;<=>?@[]^_`{|}~\"";
+  const table = new Map(Array.from(alphabet).map((char, index) => [char, index]));
+  const bytes = [];
+  let accumulator = 0;
+  let bits = 0;
+  let value91 = -1;
+
+  for (const char of String(value || "").replace(/\s+/g, "")) {
+    const decoded = table.get(char);
+    if (decoded === undefined) {
+      throw new Error("Invalid base91");
+    }
+    if (value91 === -1) {
+      value91 = decoded;
+      continue;
+    }
+
+    value91 += decoded * 91;
+    accumulator |= value91 << bits;
+    bits += (value91 & 8191) > 88 ? 13 : 14;
+    while (bits > 7) {
+      bytes.push(accumulator & 0xff);
+      accumulator >>= 8;
+      bits -= 8;
+    }
+    value91 = -1;
+  }
+
+  if (value91 !== -1) {
+    bytes.push((accumulator | (value91 << bits)) & 0xff);
+  }
+
+  return Buffer.from(bytes);
+}
+
+function z85Decode(value) {
+  const alphabet = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ.-:+=^!/*?&<>()[]{}@%$#";
+  const table = new Map(Array.from(alphabet).map((char, index) => [char, index]));
+  const cleaned = String(value || "").replace(/\s+/g, "");
+  if (!cleaned || cleaned.length % 5 !== 0) {
+    throw new Error("Invalid z85 length");
+  }
+
+  const bytes = [];
+  for (let index = 0; index < cleaned.length; index += 5) {
+    let value32 = 0;
+    for (const char of cleaned.slice(index, index + 5)) {
+      const decoded = table.get(char);
+      if (decoded === undefined) {
+        throw new Error("Invalid z85");
+      }
+      value32 = value32 * 85 + decoded;
+    }
+    if (value32 > 0xffffffff) {
+      throw new Error("Invalid z85 block");
+    }
+    bytes.push((value32 >>> 24) & 0xff, (value32 >>> 16) & 0xff, (value32 >>> 8) & 0xff, value32 & 0xff);
+  }
+
+  return Buffer.from(bytes);
+}
+
 function extractUnicodeStrings(buffer, minLength = 4, maxCount = 3000) {
   const matches = [];
 
@@ -565,7 +726,7 @@ function scoreDecodedText(text) {
   const printable = (text.match(/[\x20-\x7e]/g) || []).length / text.length;
   const spaces = (text.match(/\s/g) || []).length;
   const common = (text.match(/[etaoinshrdlu]/gi) || []).length;
-  const flagBonus = /flag\{|ctf\{|key\{/i.test(text) ? 12 : 0;
+  const flagBonus = findFlagCandidates(text, "decoded text").length ? 12 : 0;
   const asciiPenalty = (text.match(/[^\x09\x0a\x0d\x20-\x7e]/g) || []).length * 0.5;
   return printable * 6 + spaces * 0.08 + common * 0.04 + flagBonus - asciiPenalty;
 }
@@ -646,7 +807,7 @@ function pushDecodedResult(bucket, item) {
 
   const score = typeof item.score === "number" ? item.score : scoreDecodedText(value);
   const strict = Boolean(item.strict);
-  const looksLikeFlag = KNOWN_FLAG_PREFIX.test(value) || LOOSE_FLAG_PREFIX.test(value);
+  const looksLikeFlag = findFlagCandidates(value, "decoded candidate").length > 0;
   const looksLikeNaturalText = NATURAL_TEXT_HINT.test(value) || /\s/.test(value);
 
   if (strict && !looksLikeFlag && (!looksLikeNaturalText || score < 8)) {
@@ -852,6 +1013,437 @@ function collectNumericAndEscapeDecodes(text, bucket) {
   });
 }
 
+function collectA1Z26Decodes(text, bucket) {
+  const source = String(text || "");
+  const candidates = dedupeStrings(source.split(/\r?\n/).concat(source).map((line) => line.trim()).filter(Boolean).slice(0, 24));
+  candidates.forEach((line) => {
+    if (line.length > 512) {
+      return;
+    }
+    const usefulChars = (line.match(/(?:2[0-6]|1\d|[1-9]|[\s,;:_\-\/|])/g) || []).join("");
+    if (usefulChars.length / line.length < 0.78) {
+      return;
+    }
+
+    const tokens = line.match(/2[0-6]|1\d|[1-9]|[\/|]/g) || [];
+    const numberCount = tokens.filter((token) => /^\d+$/.test(token)).length;
+    if (numberCount < 4) {
+      return;
+    }
+
+    const decoded = tokens
+      .map((token) => {
+        if (token === "/" || token === "|") {
+          return "-";
+        }
+        return String.fromCharCode(64 + Number(token));
+      })
+      .join("");
+    addDerivedTextResult(bucket, "a1z26", "A1Z26 numbers", decoded, { scoreBoost: 0.7 });
+  });
+}
+
+function collectNatoPhoneticDecodes(text, bucket) {
+  const map = {
+    alpha: "A",
+    alfa: "A",
+    bravo: "B",
+    charlie: "C",
+    delta: "D",
+    echo: "E",
+    foxtrot: "F",
+    golf: "G",
+    hotel: "H",
+    india: "I",
+    juliet: "J",
+    juliett: "J",
+    kilo: "K",
+    lima: "L",
+    mike: "M",
+    november: "N",
+    oscar: "O",
+    papa: "P",
+    quebec: "Q",
+    romeo: "R",
+    sierra: "S",
+    tango: "T",
+    uniform: "U",
+    victor: "V",
+    whiskey: "W",
+    xray: "X",
+    "x-ray": "X",
+    yankee: "Y",
+    zulu: "Z",
+    zero: "0",
+    one: "1",
+    two: "2",
+    three: "3",
+    four: "4",
+    five: "5",
+    six: "6",
+    seven: "7",
+    eight: "8",
+    nine: "9",
+    dash: "-",
+    hyphen: "-",
+    slash: "/",
+    space: " ",
+  };
+  const source = String(text || "");
+  const candidates = dedupeStrings(source.split(/\r?\n/).concat(source).map((line) => line.trim()).filter(Boolean).slice(0, 24));
+  candidates.forEach((line) => {
+    if (line.length > 1200) {
+      return;
+    }
+    const tokens = line.toLowerCase().match(/[a-z]+(?:-[a-z]+)?/g) || [];
+    if (tokens.length < 4) {
+      return;
+    }
+    const decoded = [];
+    let hits = 0;
+    tokens.forEach((token) => {
+      if (map[token]) {
+        decoded.push(map[token]);
+        hits += 1;
+      }
+    });
+    if (hits >= 4 && hits / tokens.length >= 0.72) {
+      addDerivedTextResult(bucket, "nato", "NATO phonetic words", decoded.join(""), { scoreBoost: 0.7 });
+    }
+  });
+}
+
+function collectDna2BitDecodes(text, bucket) {
+  const source = String(text || "");
+  const candidates = dedupeStrings(
+    source
+      .split(/\r?\n/)
+      .concat(source)
+      .map((line) => line.trim().toUpperCase().replace(/U/g, "T"))
+      .filter((line) => line.length >= 16 && line.length <= 2048)
+      .filter((line) => {
+        const dnaChars = (line.match(/[ACGT\s,;:_\-]/g) || []).length;
+        const bases = (line.match(/[ACGT]/g) || []).length;
+        return bases >= 16 && dnaChars / line.length > 0.88;
+      })
+      .slice(0, 8),
+  );
+  const permutations = [
+    ["A", "C", "G", "T"],
+    ["A", "C", "T", "G"],
+    ["A", "G", "C", "T"],
+    ["A", "G", "T", "C"],
+    ["A", "T", "C", "G"],
+    ["A", "T", "G", "C"],
+    ["C", "A", "G", "T"],
+    ["C", "A", "T", "G"],
+    ["C", "G", "A", "T"],
+    ["C", "G", "T", "A"],
+    ["C", "T", "A", "G"],
+    ["C", "T", "G", "A"],
+    ["G", "A", "C", "T"],
+    ["G", "A", "T", "C"],
+    ["G", "C", "A", "T"],
+    ["G", "C", "T", "A"],
+    ["G", "T", "A", "C"],
+    ["G", "T", "C", "A"],
+    ["T", "A", "C", "G"],
+    ["T", "A", "G", "C"],
+    ["T", "C", "A", "G"],
+    ["T", "C", "G", "A"],
+    ["T", "G", "A", "C"],
+    ["T", "G", "C", "A"],
+  ];
+
+  candidates.forEach((candidate) => {
+    const bases = candidate.replace(/[^ACGT]/g, "");
+    permutations.forEach((permutation) => {
+      const map = new Map(permutation.map((base, index) => [base, index.toString(2).padStart(2, "0")]));
+      let bits = "";
+      for (const base of bases) {
+        bits += map.get(base);
+      }
+      for (let offset = 0; offset < 8 && bits.length - offset >= 32; offset += 2) {
+        const usable = bits.slice(offset, bits.length - ((bits.length - offset) % 8));
+        const bytes = [];
+        for (let index = 0; index + 8 <= usable.length && bytes.length < MAX_TEXT_BYTES; index += 8) {
+          bytes.push(parseInt(usable.slice(index, index + 8), 2));
+        }
+        addDerivedTextResult(bucket, "dna-2bit", `DNA 2-bit ${permutation.join("")} offset ${offset}`, Buffer.from(bytes).toString("utf8"), {
+          scoreBoost: 0.6,
+        });
+      }
+    });
+  });
+}
+
+function decodeQuotedPrintable(value) {
+  const source = String(value || "").replace(/=\r?\n/g, "");
+  const bytes = [];
+  for (let index = 0; index < source.length; index += 1) {
+    if (source[index] === "=" && /^[0-9a-fA-F]{2}$/.test(source.slice(index + 1, index + 3))) {
+      bytes.push(parseInt(source.slice(index + 1, index + 3), 16));
+      index += 2;
+      continue;
+    }
+    bytes.push(source.charCodeAt(index) & 0xff);
+  }
+  return Buffer.from(bytes).toString("utf8");
+}
+
+function collectQuotedPrintableDecodes(text, bucket) {
+  const source = String(text || "");
+  if (!/(?:=[0-9a-fA-F]{2}|=\r?\n)/.test(source)) {
+    return;
+  }
+
+  const matches = dedupeStrings(
+    [
+      source,
+      ...Array.from(source.matchAll(/((?:[A-Za-z0-9+/_. -]*=[0-9a-fA-F]{2}[A-Za-z0-9+/_.= -]*){2,})/g)).map((match) => match[1]),
+    ].slice(0, 8),
+  );
+  matches.forEach((value) => {
+    addDerivedTextResult(bucket, "quoted-printable", "Quoted-Printable", decodeQuotedPrintable(value), { scoreBoost: 0.5 });
+  });
+}
+
+function decodeUuencodeBlock(text) {
+  const lines = String(text || "").split(/\r?\n/);
+  const beginIndex = lines.findIndex((line) => /^begin\s+[0-7]{3}\s+\S+/.test(line.trim()));
+  if (beginIndex === -1) {
+    return null;
+  }
+
+  const bytes = [];
+  for (let lineIndex = beginIndex + 1; lineIndex < lines.length; lineIndex += 1) {
+    const line = lines[lineIndex].replace(/\r$/, "");
+    if (/^end\s*$/.test(line.trim())) {
+      break;
+    }
+    if (!line) {
+      continue;
+    }
+
+    const expectedLength = (line.charCodeAt(0) - 32) & 0x3f;
+    if (expectedLength === 0) {
+      continue;
+    }
+
+    const lineBytes = [];
+    for (let index = 1; index < line.length; index += 4) {
+      const chunk = line.slice(index, index + 4).padEnd(4, " ");
+      const values = Array.from(chunk).map((char) => (char.charCodeAt(0) - 32) & 0x3f);
+      lineBytes.push((values[0] << 2) | (values[1] >> 4));
+      lineBytes.push(((values[1] & 0x0f) << 4) | (values[2] >> 2));
+      lineBytes.push(((values[2] & 0x03) << 6) | values[3]);
+    }
+    bytes.push(...lineBytes.slice(0, expectedLength));
+  }
+
+  return bytes.length ? Buffer.from(bytes).toString("utf8") : null;
+}
+
+function collectUuencodeDecodes(text, bucket) {
+  if (!/^begin\s+[0-7]{3}\s+\S+/m.test(String(text || ""))) {
+    return;
+  }
+  addDerivedTextResult(bucket, "uuencode", "UUEncode", decodeUuencodeBlock(text), { scoreBoost: 0.8 });
+}
+
+function collectBase91Decodes(text, bucket) {
+  const alphabetPattern = /[A-Za-z0-9!#$%&()*+,./:;<=>?@[\]^_`{|}~"]/;
+  const source = String(text || "");
+  const candidates = dedupeStrings(
+    source
+      .split(/\r?\n/)
+      .concat(source)
+      .map((line) => line.trim())
+      .filter((line) => line.length >= 12 && line.length <= 512)
+      .filter((line) => {
+        const compact = line.replace(/\s+/g, "");
+        const validChars = Array.from(compact).filter((char) => alphabetPattern.test(char)).length;
+        const symbolCount = (compact.match(/[!#$%&()*+,./:;<=>?@[\]^_`{|}~"]/g) || []).length;
+        return compact.length >= 12 && validChars / compact.length > 0.96 && symbolCount >= 2;
+      })
+      .slice(0, 10),
+  );
+
+  candidates.forEach((value) => {
+    try {
+      collectTextVariantsFromBuffer(base91Decode(value), "BASE91", bucket);
+    } catch (_error) {
+      // ignore invalid Base91 candidates
+    }
+  });
+}
+
+function collectZ85Decodes(text, bucket) {
+  const alphabetPattern = /[0-9a-zA-Z.\-:+=^!/*?&<>()[\]{}@%$#]/;
+  const source = String(text || "");
+  const candidates = dedupeStrings(
+    source
+      .split(/\r?\n/)
+      .concat(source)
+      .flatMap((line) => line.match(/[0-9a-zA-Z.\-:+=^!/*?&<>()[\]{}@%$#]{20,}/g) || [])
+      .map((line) => line.trim())
+      .filter((line) => line.length >= 20 && line.length <= 512 && line.length % 5 === 0)
+      .filter((line) => {
+        const validChars = Array.from(line).filter((char) => alphabetPattern.test(char)).length;
+        const symbolCount = (line.match(/[.\-:+=^!/*?&<>()[\]{}@%$#]/g) || []).length;
+        return validChars / line.length > 0.98 && symbolCount >= 1;
+      })
+      .slice(0, 10),
+  );
+
+  candidates.forEach((value) => {
+    try {
+      collectTextVariantsFromBuffer(z85Decode(value), "Z85", bucket);
+    } catch (_error) {
+      // ignore invalid Z85 candidates
+    }
+  });
+}
+
+function normalizeMorseCandidate(value) {
+  return String(value || "")
+    .replace(/[·•]/g, ".")
+    .replace(/[‐‑‒–—−_]/g, "-")
+    .replace(/[|\\]/g, "/")
+    .replace(/\s*\/\s*/g, " / ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function decodeMorsePattern(pattern) {
+  const normalized = normalizeMorseCandidate(pattern);
+  if (!normalized || !/[.-]/.test(normalized)) {
+    return "";
+  }
+
+  let valid = 0;
+  const words = normalized.split(/\s+\/\s+/).map((word) => word.trim()).filter(Boolean);
+  const decoded = words
+    .map((word) =>
+      word
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((token) => {
+          const value = MORSE_DECODE_MAP[token] || "?";
+          if (value !== "?") {
+            valid += 1;
+          }
+          return value;
+        })
+        .join(""),
+    )
+    .join(" ");
+
+  return valid >= 4 && !/^[?\s]+$/.test(decoded) ? decoded : "";
+}
+
+function collectMorseTextDecodes(text, bucket) {
+  const source = String(text || "");
+  const candidates = dedupeStrings(
+    source
+      .split(/\r?\n/)
+      .concat(source)
+      .map((line) => line.trim())
+      .filter((line) => {
+        if (line.length < 12 || !/[.\-·•–—−_]/.test(line)) {
+          return false;
+        }
+        const morseChars = (line.match(/[.\-·•–—−_\/|\\\s]/g) || []).length;
+        const tokenCount = normalizeMorseCandidate(line).split(/\s+/).filter((token) => token && token !== "/").length;
+        return tokenCount >= 4 && morseChars / line.length > 0.72;
+      })
+      .slice(0, 12),
+  );
+
+  candidates.forEach((value) => {
+    addDerivedTextResult(bucket, "morse", "Morse text", decodeMorsePattern(value), { scoreBoost: 0.8 });
+  });
+}
+
+function decodePolybiusPairs(value) {
+  const alphabet = "ABCDEFGHIKLMNOPQRSTUVWXYZ";
+  const source = String(value || "").trim();
+  const tokens = source.match(/[1-5][1-5]|[\/|]/g) || [];
+  if (tokens.length < 4) {
+    return "";
+  }
+
+  return tokens
+    .map((token) => {
+      if (token === "/" || token === "|") {
+        return "-";
+      }
+      const row = Number(token[0]);
+      const column = Number(token[1]);
+      return alphabet[(row - 1) * 5 + (column - 1)] || "";
+    })
+    .join("");
+}
+
+function collectPolybiusDecodes(text, bucket) {
+  const matches = dedupeStrings(
+    Array.from(String(text || "").matchAll(/(?:^|[^1-5])((?:[1-5][1-5][\s,;:_-]*){4,}(?:[\/|][\s,;:_-]*(?:[1-5][1-5][\s,;:_-]*){2,})*)(?=$|[^1-5])/g))
+      .map((match) => match[1])
+      .slice(0, 10),
+  );
+
+  matches.forEach((value) => {
+    addDerivedTextResult(bucket, "polybius", "Polybius 5x5 coordinates", decodePolybiusPairs(value), { scoreBoost: 0.7 });
+  });
+}
+
+function nearestDtmfCombinedKey(value, tolerance = 10) {
+  let best = null;
+  Object.entries(DTMF_COMBINED_MAP).forEach(([frequency, key]) => {
+    const distance = Math.abs(Number(frequency) - value);
+    if (distance <= tolerance && (!best || distance < best.distance)) {
+      best = { key, distance };
+    }
+  });
+  return best?.key || "";
+}
+
+function decodePhoneMultitap(keys) {
+  let output = "";
+  let index = 0;
+  while (index < keys.length) {
+    const key = keys[index];
+    let end = index + 1;
+    while (end < keys.length && keys[end] === key) {
+      end += 1;
+    }
+    const alphabet = PHONE_MULTITAP_MAP[key];
+    if (alphabet?.length) {
+      output += alphabet[(end - index - 1) % alphabet.length];
+    }
+    index = end;
+  }
+  return output.trim();
+}
+
+function collectDtmfCombinedDecodes(text, bucket) {
+  const compact = String(text || "").replace(/\s+/g, "");
+  if (!/^\d{32,}$/.test(compact) || compact.length % 4 !== 0) {
+    return;
+  }
+
+  const keys = [];
+  for (let index = 0; index < compact.length; index += 4) {
+    const key = nearestDtmfCombinedKey(Number(compact.slice(index, index + 4)));
+    if (!key) {
+      return;
+    }
+    keys.push(key);
+  }
+  const decoded = decodePhoneMultitap(keys.join(""));
+  addDerivedTextResult(bucket, "dtmf-multitap", "DTMF combined frequencies -> phone multitap", decoded, { scoreBoost: 2 });
+}
+
 function atbashText(text) {
   return String(text || "").replace(/[A-Za-z]/g, (char) => {
     const code = char.charCodeAt(0);
@@ -867,12 +1459,79 @@ function rot47Text(text) {
   });
 }
 
+function railFenceDecode(cipherText, rails) {
+  const text = String(cipherText || "");
+  if (rails < 2 || text.length < rails * 2) {
+    return "";
+  }
+
+  const pattern = [];
+  let rail = 0;
+  let direction = 1;
+  for (let index = 0; index < text.length; index += 1) {
+    pattern.push(rail);
+    if (rail === 0) direction = 1;
+    if (rail === rails - 1) direction = -1;
+    rail += direction;
+  }
+
+  const railLengths = Array.from({ length: rails }, (_, targetRail) => pattern.filter((item) => item === targetRail).length);
+  const railsData = [];
+  let cursor = 0;
+  railLengths.forEach((length) => {
+    railsData.push(Array.from(text.slice(cursor, cursor + length)));
+    cursor += length;
+  });
+
+  const positions = new Array(rails).fill(0);
+  return pattern.map((targetRail) => railsData[targetRail][positions[targetRail]++]).join("");
+}
+
+function modInverse(value, modulo) {
+  for (let candidate = 1; candidate < modulo; candidate += 1) {
+    if ((value * candidate) % modulo === 1) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function affineDecode(text, multiplier, shift) {
+  const inverse = modInverse(multiplier, 26);
+  if (!inverse) {
+    return "";
+  }
+
+  return String(text || "").replace(/[A-Za-z]/g, (char) => {
+    const code = char.charCodeAt(0);
+    const base = code >= 97 ? 97 : 65;
+    const value = code - base;
+    return String.fromCharCode(((inverse * (value - shift + 26)) % 26) + base);
+  });
+}
+
 function collectClassicalCipherDecodes(text, bucket, wholeTextTransformAllowed) {
   if (!wholeTextTransformAllowed) {
     return;
   }
   addDerivedTextResult(bucket, "rot47", "ROT47", rot47Text(text), { scoreBoost: 0.2 });
   addDerivedTextResult(bucket, "atbash", "ATBASH", atbashText(text), { scoreBoost: 0.2 });
+
+  const normalized = String(text || "").trim();
+  if (normalized.length >= 8 && normalized.length <= 180) {
+    for (let rails = 2; rails <= Math.min(8, Math.floor(normalized.length / 2)); rails += 1) {
+      addDerivedTextResult(bucket, "rail-fence", `Rail fence ${rails} rails`, railFenceDecode(normalized, rails), { scoreBoost: 0.2 });
+    }
+
+    const multipliers = [1, 3, 5, 7, 9, 11, 15, 17, 19, 21, 23, 25];
+    multipliers.forEach((multiplier) => {
+      for (let shift = 0; shift < 26; shift += 1) {
+        addDerivedTextResult(bucket, "affine", `Affine a=${multiplier} b=${shift}`, affineDecode(normalized, multiplier, shift), {
+          scoreBoost: 0.15,
+        });
+      }
+    });
+  }
 }
 
 function decodeBaconLetters(sequence, inverse = false) {
@@ -962,6 +1621,45 @@ function collectBrainfuckDecodes(text, bucket) {
   });
 }
 
+function ookToBrainfuck(text) {
+  const tokens = Array.from(String(text || "").matchAll(/Ook[.!?]/g)).map((match) => match[0].slice(3));
+  if (tokens.length < 2) {
+    return "";
+  }
+
+  const map = {
+    ".?": ">",
+    "?.": "<",
+    "..": "+",
+    "!!": "-",
+    "!.": ".",
+    ".!": ",",
+    "!?": "[",
+    "?!": "]",
+  };
+  let program = "";
+  for (let index = 0; index + 1 < tokens.length; index += 2) {
+    const op = map[`${tokens[index]}${tokens[index + 1]}`];
+    if (!op) {
+      return "";
+    }
+    program += op;
+  }
+  return program;
+}
+
+function collectOokDecodes(text, bucket) {
+  const matches = dedupeStrings(
+    Array.from(String(text || "").matchAll(/(?:Ook[.!?]\s*){20,}/g))
+      .map((match) => match[0])
+      .slice(0, 4),
+  );
+  matches.forEach((value) => {
+    const program = ookToBrainfuck(value);
+    addDerivedTextResult(bucket, "ook", "Ook! Brainfuck dialect", runBrainfuck(program), { scoreBoost: 1.1 });
+  });
+}
+
 function collectTextVariantsFromBuffer(buffer, label, bucket) {
   const decoded = decodeBufferAsText(buffer).trim();
   pushDecodedResult(bucket, {
@@ -1018,8 +1716,19 @@ function smartDecodeTextContent(buffer) {
   collectZeroWidthDecodes(text, results);
   collectWhitespaceStegoDecodes(text, results);
   collectNumericAndEscapeDecodes(text, results);
+  collectA1Z26Decodes(text, results);
+  collectNatoPhoneticDecodes(text, results);
+  collectDna2BitDecodes(text, results);
+  collectQuotedPrintableDecodes(text, results);
+  collectUuencodeDecodes(text, results);
+  collectBase91Decodes(text, results);
+  collectZ85Decodes(text, results);
+  collectMorseTextDecodes(text, results);
+  collectPolybiusDecodes(text, results);
+  collectDtmfCombinedDecodes(text, results);
   collectBaconDecodes(text, results);
   collectBrainfuckDecodes(text, results);
+  collectOokDecodes(text, results);
 
   encoded.base64.forEach((value) => {
     try {
@@ -1133,6 +1842,450 @@ function smartDecodeTextContent(buffer) {
     .map(({ type, label, value }) => ({ type, label, value }));
 }
 
+function reverseByteBits(value) {
+  let result = 0;
+  for (let bit = 0; bit < 8; bit += 1) {
+    result = (result << 1) | ((value >> bit) & 1);
+  }
+  return result;
+}
+
+function signalBitsToBuffer(bits, offset = 0, leastSignificantBitFirst = false) {
+  const cleaned = String(bits || "").replace(/[^01]/g, "");
+  const bytes = [];
+  for (let index = offset; index + 8 <= cleaned.length && bytes.length < MAX_TEXT_BYTES; index += 8) {
+    const chunk = cleaned.slice(index, index + 8);
+    bytes.push(parseInt(leastSignificantBitFirst ? Array.from(chunk).reverse().join("") : chunk, 2));
+  }
+  return Buffer.from(bytes);
+}
+
+function collectSignalBufferDecodes(buffer, label, bucket) {
+  if (!buffer || buffer.length < 4) {
+    return;
+  }
+  collectTextVariantsFromBuffer(buffer, label, bucket);
+  const reversed = Buffer.from(Array.from(buffer, reverseByteBits));
+  collectTextVariantsFromBuffer(reversed, `${label} -> bit-reverse`, bucket);
+}
+
+function rankSignalCandidates(candidates, limit = 40) {
+  const deduped = new Map();
+  candidates.forEach((item) => {
+    const value = String(item.value || "").trim();
+    if (!value) {
+      return;
+    }
+    const key = `${item.label}@@${value}`;
+    const current = deduped.get(key);
+    if (!current || (item.score || 0) > (current.score || 0)) {
+      deduped.set(key, item);
+    }
+  });
+  return Array.from(deduped.values())
+    .sort((left, right) => (right.score || 0) - (left.score || 0))
+    .slice(0, limit)
+    .map(({ type, label, value }) => ({ type, label, value }));
+}
+
+function parseVcdSignals(text) {
+  const signals = new Map();
+  const definitionPattern = /\$var\s+\S+\s+(\d+)\s+(\S+)\s+(.+?)\s+\$end/g;
+  for (const match of String(text || "").matchAll(definitionPattern)) {
+    signals.set(match[2], {
+      symbol: match[2],
+      width: Number(match[1]),
+      name: match[3].trim(),
+      transitions: [],
+    });
+  }
+
+  let timestamp = 0;
+  String(text || "")
+    .split(/\r?\n/)
+    .forEach((rawLine) => {
+      const line = rawLine.trim();
+      if (!line) {
+        return;
+      }
+      if (line.startsWith("#")) {
+        const parsed = Number(line.slice(1));
+        if (Number.isFinite(parsed)) {
+          timestamp = parsed;
+        }
+        return;
+      }
+      const scalar = /^([01xXzZ])(.+)$/.exec(line);
+      if (scalar && signals.has(scalar[2])) {
+        signals.get(scalar[2]).transitions.push({ time: timestamp, value: scalar[1].toLowerCase() });
+        return;
+      }
+      const vector = /^b([01xXzZ]+)\s+(\S+)$/.exec(line);
+      if (vector && signals.has(vector[2])) {
+        signals.get(vector[2]).transitions.push({ time: timestamp, value: vector[1].toLowerCase() });
+      }
+    });
+
+  return Array.from(signals.values()).filter((signal) => signal.transitions.length);
+}
+
+function getVcdValueAt(transitions, timestamp) {
+  let low = 0;
+  let high = transitions.length - 1;
+  let value = "0";
+  while (low <= high) {
+    const middle = Math.floor((low + high) / 2);
+    if (transitions[middle].time <= timestamp) {
+      value = transitions[middle].value;
+      low = middle + 1;
+    } else {
+      high = middle - 1;
+    }
+  }
+  return value;
+}
+
+function collectUartCandidates(signals, candidates) {
+  const attempts = [];
+  signals
+    .filter((signal) => signal.width === 1 && signal.transitions.length >= 8)
+    .slice(0, 16)
+    .forEach((signal) => {
+      const intervals = [];
+      for (let index = 1; index < signal.transitions.length; index += 1) {
+        const interval = signal.transitions[index].time - signal.transitions[index - 1].time;
+        if (interval > 0) intervals.push(interval);
+      }
+      const periodCandidates = dedupeStrings(
+        intervals
+          .flatMap((interval) => Array.from({ length: 8 }, (_unused, divisor) => Math.round(interval / (divisor + 1))))
+          .filter((value) => value > 0)
+          .map(String),
+      )
+        .map(Number)
+        .sort((left, right) => left - right)
+        .slice(0, 24);
+
+      [false, true].forEach((inverted) => {
+        periodCandidates.forEach((period) => {
+          const bytes = [];
+          let validStops = 0;
+          let frames = 0;
+          let ignoreUntil = -1;
+          let previous = inverted ? "0" : "1";
+          signal.transitions.forEach((transition) => {
+            const current = inverted ? (transition.value === "0" ? "1" : "0") : transition.value;
+            if (transition.time < ignoreUntil || previous !== "1" || current !== "0") {
+              previous = current;
+              return;
+            }
+            let value = 0;
+            for (let bit = 0; bit < 8; bit += 1) {
+              const sampled = getVcdValueAt(signal.transitions, transition.time + period * (1.5 + bit));
+              const normalized = inverted ? (sampled === "0" ? "1" : "0") : sampled;
+              if (normalized === "1") value |= 1 << bit;
+            }
+            const stop = getVcdValueAt(signal.transitions, transition.time + period * 9.5);
+            const normalizedStop = inverted ? (stop === "0" ? "1" : "0") : stop;
+            frames += 1;
+            if (normalizedStop === "1") validStops += 1;
+            bytes.push(value);
+            ignoreUntil = transition.time + period * 9.8;
+            previous = current;
+          });
+          if (bytes.length < 4 || validStops / Math.max(1, frames) < 0.6) {
+            return;
+          }
+          const label = `UART ${signal.name} period=${period}${inverted ? " inverted" : ""}`;
+          collectSignalBufferDecodes(Buffer.from(bytes), label, candidates);
+          attempts.push({ signal: signal.name, period, inverted, frames: bytes.length, validStops });
+        });
+      });
+    });
+  return attempts;
+}
+
+function collectI2cCandidates(signals, candidates) {
+  const attempts = [];
+  const scalar = signals.filter((signal) => signal.width === 1 && signal.transitions.length >= 8).slice(0, 12);
+  scalar.forEach((clock) => {
+    scalar.forEach((data) => {
+      if (clock.symbol === data.symbol) return;
+      const preferred =
+        /(?:scl|clock|clk)/i.test(clock.name) && /(?:sda|data)/i.test(data.name)
+          ? 2
+          : /(?:scl|clock|clk|sda|data)/i.test(`${clock.name} ${data.name}`)
+            ? 1
+            : 0;
+      const bits = [];
+      let previous = clock.transitions[0]?.value || "0";
+      clock.transitions.slice(1).forEach((transition) => {
+        if (previous === "0" && transition.value === "1") {
+          const value = getVcdValueAt(data.transitions, transition.time);
+          if (value === "0" || value === "1") bits.push(value);
+        }
+        previous = transition.value;
+      });
+      if (bits.length < 36) return;
+      const stream = bits.join("");
+      for (let offset = 0; offset < 9; offset += 1) {
+        const bytes = [];
+        const acks = [];
+        for (let index = offset; index + 9 <= stream.length; index += 9) {
+          bytes.push(parseInt(stream.slice(index, index + 8), 2));
+          acks.push(stream[index + 8]);
+        }
+        if (bytes.length < 4) continue;
+        const ackRatio = acks.filter((value) => value === "0").length / acks.length;
+        if (!preferred && ackRatio < 0.45) continue;
+        const label = `I2C ${clock.name}/${data.name} offset=${offset} ack=${ackRatio.toFixed(2)}`;
+        collectSignalBufferDecodes(Buffer.from(bytes), label, candidates);
+        collectSignalBufferDecodes(Buffer.from(bytes.slice(1)), `${label} data-only`, candidates);
+        attempts.push({ clock: clock.name, data: data.name, offset, bytes: bytes.length, ackRatio });
+      }
+    });
+  });
+  return attempts
+    .sort((left, right) => right.ackRatio - left.ackRatio)
+    .slice(0, 80);
+}
+
+function analyzeVcdText(text) {
+  const signals = parseVcdSignals(text);
+  const scalarSignals = signals.filter((signal) => signal.width === 1 && signal.transitions.length >= 2);
+  const clockCandidates = scalarSignals
+    .filter((signal) => signal.transitions.length >= 8)
+    .sort((left, right) => right.transitions.length - left.transitions.length)
+    .slice(0, 5);
+  const dataCandidates = scalarSignals
+    .sort((left, right) => right.transitions.length - left.transitions.length)
+    .slice(0, 14);
+  const candidates = [];
+  const samples = [];
+
+  clockCandidates.forEach((clock) => {
+    dataCandidates.forEach((data) => {
+      if (clock.symbol === data.symbol) {
+        return;
+      }
+      ["rising", "falling"].forEach((edge) => {
+        const bits = [];
+        let previous = clock.transitions[0]?.value || "0";
+        clock.transitions.slice(1).forEach((transition) => {
+          const isEdge = edge === "rising" ? previous === "0" && transition.value === "1" : previous === "1" && transition.value === "0";
+          if (isEdge) {
+            const value = getVcdValueAt(data.transitions, transition.time);
+            if (value === "0" || value === "1") {
+              bits.push(value);
+            }
+          }
+          previous = transition.value;
+        });
+        if (bits.length < 32) {
+          return;
+        }
+        const bitString = bits.join("");
+        samples.push({ clock: clock.name, data: data.name, edge, bitCount: bits.length });
+        for (let offset = 0; offset < 8 && offset + 32 <= bitString.length; offset += 1) {
+          collectSignalBufferDecodes(signalBitsToBuffer(bitString, offset, false), `${clock.name}/${data.name} ${edge} MSB offset ${offset}`, candidates);
+          collectSignalBufferDecodes(signalBitsToBuffer(bitString, offset, true), `${clock.name}/${data.name} ${edge} LSB offset ${offset}`, candidates);
+        }
+      });
+    });
+  });
+
+  const uartAttempts = collectUartCandidates(scalarSignals, candidates);
+  const i2cAttempts = collectI2cCandidates(scalarSignals, candidates);
+  return {
+    signalCount: signals.length,
+    samples,
+    uartAttempts,
+    i2cAttempts,
+    candidates: rankSignalCandidates(candidates, 60),
+  };
+}
+
+function detectCsvDelimiter(line) {
+  return [",", ";", "\t"].sort((left, right) => line.split(right).length - line.split(left).length)[0];
+}
+
+function applyLogicOperator(left, right, operator) {
+  if (operator === "&") return left & right;
+  if (operator === "|") return left | right;
+  return left ^ right;
+}
+
+function analyzeBinaryCsv(text) {
+  const lines = String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length < 5) {
+    return null;
+  }
+  const delimiter = detectCsvDelimiter(lines[0]);
+  const headers = lines[0].split(delimiter).map((item, index) => item.trim() || `column_${index + 1}`);
+  const rows = lines
+    .slice(1, 20001)
+    .map((line) => line.split(delimiter).map((item) => item.trim()))
+    .filter((row) => row.length === headers.length);
+  const binaryIndexes = headers
+    .map((_header, index) => index)
+    .filter((index) => rows.length >= 4 && rows.every((row) => row[index] === "0" || row[index] === "1"));
+  if (binaryIndexes.length < 1) {
+    return null;
+  }
+
+  const formulas = new Map();
+  const addFormula = (label, evaluate) => {
+    const bits = rows.map((row) => String(evaluate(row) & 1)).join("");
+    if (bits.length >= 32 && !formulas.has(bits)) {
+      formulas.set(bits, label);
+    }
+  };
+  binaryIndexes.slice(0, 10).forEach((index) => {
+    addFormula(headers[index], (row) => Number(row[index]));
+    addFormula(`NOT ${headers[index]}`, (row) => Number(row[index]) ^ 1);
+  });
+  binaryIndexes.slice(0, 8).forEach((left, leftPosition) => {
+    binaryIndexes.slice(leftPosition + 1, 8).forEach((right) => {
+      ["&", "|", "^"].forEach((operator) => {
+        addFormula(`${headers[left]} ${operator} ${headers[right]}`, (row) => applyLogicOperator(Number(row[left]), Number(row[right]), operator));
+      });
+    });
+  });
+
+  const inputIndexes = binaryIndexes.filter((index) => !/(?:out|output|result|target|expected|label)/i.test(headers[index])).slice(0, 4);
+  if (inputIndexes.length === 4) {
+    const pairings = [
+      [inputIndexes[0], inputIndexes[1], inputIndexes[2], inputIndexes[3]],
+      [inputIndexes[0], inputIndexes[2], inputIndexes[1], inputIndexes[3]],
+      [inputIndexes[0], inputIndexes[3], inputIndexes[1], inputIndexes[2]],
+    ];
+    pairings.forEach(([a, b, c, d]) => {
+      ["&", "|", "^"].forEach((firstOperator) => {
+        ["&", "|", "^"].forEach((secondOperator) => {
+          ["&", "|", "^"].forEach((combineOperator) => {
+            const label = `(${headers[a]} ${firstOperator} ${headers[b]}) ${combineOperator} (${headers[c]} ${secondOperator} ${headers[d]})`;
+            addFormula(label, (row) =>
+              applyLogicOperator(
+                applyLogicOperator(Number(row[a]), Number(row[b]), firstOperator),
+                applyLogicOperator(Number(row[c]), Number(row[d]), secondOperator),
+                combineOperator,
+              ),
+            );
+          });
+        });
+      });
+    });
+  }
+
+  const candidates = [];
+  formulas.forEach((label, bits) => {
+    collectBitsAsText(bits, `CSV logic ${label}`, candidates);
+    collectBitsAsText(Array.from(bits, (bit) => (bit === "0" ? "1" : "0")).join(""), `CSV logic NOT (${label})`, candidates);
+    collectSignalBufferDecodes(signalBitsToBuffer(bits), `CSV logic ${label}`, candidates);
+  });
+  return {
+    headers,
+    rowCount: rows.length,
+    binaryColumns: binaryIndexes.map((index) => headers[index]),
+    formulaCount: formulas.size,
+    candidates: rankSignalCandidates(candidates),
+  };
+}
+
+function analyzeCanLog(text) {
+  const frames = [];
+  String(text || "")
+    .split(/\r?\n/)
+    .slice(0, 50000)
+    .forEach((line) => {
+      const candump = /(?:\([^)]*\)\s+)?(?:\S+\s+)?([0-9a-fA-F]{3,8})#([0-9a-fA-F]{2,64})\b/.exec(line);
+      if (candump) {
+        frames.push({ id: candump[1].toUpperCase(), data: Buffer.from(candump[2], "hex") });
+        return;
+      }
+      const asc = /^\s*(?:\d+(?:\.\d+)?)\s+\S+\s+([0-9a-fA-F]{3,8})\s+(?:Rx|Tx)\s+d\s+\d+\s+((?:[0-9a-fA-F]{2}\s+){0,63}[0-9a-fA-F]{2})/i.exec(line);
+      if (asc) {
+        frames.push({ id: asc[1].toUpperCase(), data: Buffer.from(asc[2].replace(/\s+/g, ""), "hex") });
+      }
+    });
+  if (frames.length < 2) return null;
+
+  const byId = new Map();
+  frames.forEach((frame) => {
+    const list = byId.get(frame.id) || [];
+    list.push(frame.data);
+    byId.set(frame.id, list);
+  });
+  const candidates = [];
+  byId.forEach((parts, id) => {
+    collectSignalBufferDecodes(Buffer.concat(parts), `CAN id=0x${id}`, candidates);
+  });
+  collectSignalBufferDecodes(Buffer.concat(frames.map((frame) => frame.data)), "CAN chronological payloads", candidates);
+  return {
+    kind: "can-log",
+    frameCount: frames.length,
+    ids: Array.from(byId.entries())
+      .map(([id, parts]) => ({ id, frames: parts.length, bytes: parts.reduce((sum, part) => sum + part.length, 0) }))
+      .sort((left, right) => right.bytes - left.bytes),
+    candidates: rankSignalCandidates(candidates, 60),
+  };
+}
+
+function analyzeSignalArtifact(buffer, extension) {
+  const text = decodeBufferAsText(buffer);
+  if (extension === ".vcd" || /\$enddefinitions\s+\$end/i.test(text)) {
+    return { kind: "vcd", ...analyzeVcdText(text) };
+  }
+  if (extension === ".csv") {
+    const report = analyzeBinaryCsv(text);
+    return report ? { kind: "logic-csv", ...report } : null;
+  }
+  if ([".asc", ".log", ".txt"].includes(extension) || /[0-9a-fA-F]{3,8}#[0-9a-fA-F]{4,}/.test(text)) {
+    return analyzeCanLog(text);
+  }
+  return null;
+}
+
+function buildSignalReport(fileName, report) {
+  const lines = ["# SIGNAL ANALYSIS REPORT", `file: ${fileName}`, `kind: ${report.kind}`, ""];
+  if (report.kind === "vcd") {
+    lines.push(`signals: ${report.signalCount}`, `sampled-buses: ${report.samples.length}`, "");
+    appendReportSection(
+      lines,
+      "sampled buses",
+      report.samples.slice(0, 80).map((item) => `${item.clock} -> ${item.data} ${item.edge} bits=${item.bitCount}`),
+      "(none)",
+    );
+    appendReportSection(
+      lines,
+      "UART attempts",
+      report.uartAttempts.slice(0, 80).map((item) => `${item.signal} period=${item.period} inverted=${item.inverted} frames=${item.frames} stops=${item.validStops}`),
+      "(none)",
+    );
+    appendReportSection(
+      lines,
+      "I2C attempts",
+      report.i2cAttempts.slice(0, 80).map((item) => `${item.clock}/${item.data} offset=${item.offset} bytes=${item.bytes} ack=${item.ackRatio.toFixed(2)}`),
+      "(none)",
+    );
+  } else if (report.kind === "can-log") {
+    lines.push(`frames: ${report.frameCount}`, `ids: ${report.ids.length}`, "");
+    appendReportSection(lines, "CAN IDs", report.ids.map((item) => `0x${item.id} frames=${item.frames} bytes=${item.bytes}`), "(none)");
+  } else {
+    lines.push(`rows: ${report.rowCount}`, `binary-columns: ${report.binaryColumns.join(", ")}`, `logic-formulas: ${report.formulaCount}`, "");
+  }
+  appendReportSection(
+    lines,
+    "decoded candidates",
+    report.candidates.map((item) => `${item.label}\n${item.value}`),
+    "(none)",
+  );
+  return `${lines.join("\n")}\n`;
+}
+
 function detectEmbeddedPayloads(buffer, offset = 128) {
   const hits = [];
   for (const signature of EMBEDDED_SIGNATURES) {
@@ -1173,6 +2326,105 @@ function scanEmbeddedSignatures(buffer, offset = 0, limit = 80) {
     .slice(0, limit);
 }
 
+function analyzeInterleavedPayload(buffer) {
+  const rootMagic = detectMagic(buffer);
+  const signature = EMBEDDED_SIGNATURES.find((item) => item.id === rootMagic);
+  if (!signature || buffer.length < 1024) {
+    return null;
+  }
+  const offsets = [0]
+    .concat(scanEmbeddedSignatures(buffer, 1, 24).filter((item) => item.id === rootMagic).map((item) => item.offset))
+    .sort((left, right) => left - right);
+  const offsetSet = new Set(offsets);
+  let best = null;
+  offsets.slice(1, 8).forEach((blockSize) => {
+    if (blockSize < 64 || blockSize > 1024 * 1024) {
+      return;
+    }
+    let streamCount = 1;
+    while (streamCount < 8 && offsetSet.has(streamCount * blockSize)) {
+      streamCount += 1;
+    }
+    if (streamCount < 2 || buffer.length < blockSize * streamCount * 2) {
+      return;
+    }
+    const score = streamCount * 10 - Math.abs(blockSize - 1024) / 1024;
+    if (!best || score > best.score) {
+      best = { format: rootMagic, blockSize, streamCount, score };
+    }
+  });
+  return best;
+}
+
+function buildPngContactSheet(buffers) {
+  let images;
+  try {
+    images = buffers.map((buffer) => PNG.sync.read(buffer));
+  } catch (_error) {
+    return null;
+  }
+  const textCenters = images.map((image) => {
+    let minY = image.height;
+    let maxY = -1;
+    for (let y = 0; y < image.height; y += 1) {
+      for (let x = 0; x < image.width; x += 1) {
+        const offset = (y * image.width + x) * 4;
+        if (image.data[offset] > 220 && image.data[offset + 1] > 220 && image.data[offset + 2] > 220 && image.data[offset + 3] > 100) {
+          minY = Math.min(minY, y);
+          maxY = Math.max(maxY, y);
+        }
+      }
+    }
+    return maxY >= minY ? (minY + maxY) / 2 : image.height / 2;
+  });
+  const targetCenter = Math.max(...textCenters);
+  const rawOffsets = textCenters.map((center) => Math.round(targetCenter - center));
+  const minimumOffset = Math.min(...rawOffsets);
+  const yOffsets = rawOffsets.map((offset) => offset - minimumOffset);
+  const width = images.reduce((sum, image) => sum + image.width, 0);
+  const height = Math.max(...images.map((image, index) => image.height + yOffsets[index]));
+  if (!width || !height || width * height > 16_000_000) {
+    return null;
+  }
+  const output = new PNG({ width, height });
+  output.data.fill(255);
+  let xOffset = 0;
+  images.forEach((image, imageIndex) => {
+    for (let y = 0; y < image.height; y += 1) {
+      const sourceStart = y * image.width * 4;
+      const targetStart = ((y + yOffsets[imageIndex]) * width + xOffset) * 4;
+      image.data.copy(output.data, targetStart, sourceStart, sourceStart + image.width * 4);
+    }
+    xOffset += image.width;
+  });
+  return PNG.sync.write(output);
+}
+
+function trimRecoveredPayload(buffer, format) {
+  if (format === "png" && buffer.length >= 12) {
+    let offset = 8;
+    while (offset + 12 <= buffer.length) {
+      const length = buffer.readUInt32BE(offset);
+      const type = buffer.subarray(offset + 4, offset + 8).toString("ascii");
+      const end = offset + 12 + length;
+      if (end > buffer.length) {
+        break;
+      }
+      if (type === "IEND") {
+        return buffer.subarray(0, end);
+      }
+      offset = end;
+    }
+  }
+  if (format === "jpeg") {
+    const end = buffer.indexOf(Buffer.from([0xff, 0xd9]), 2);
+    if (end !== -1) {
+      return buffer.subarray(0, end + 2);
+    }
+  }
+  return buffer;
+}
+
 function normalizeText(value) {
   return String(value || "").toLowerCase();
 }
@@ -1183,6 +2435,8 @@ function isLikelyTextExtension(extension) {
     ".md",
     ".log",
     ".csv",
+    ".vcd",
+    ".asc",
     ".json",
     ".yaml",
     ".yml",
@@ -1210,6 +2464,26 @@ function isOfficePackageExtension(extension) {
   return OFFICE_DOCUMENT_EXTENSIONS.includes(extension);
 }
 
+function isTarBuffer(buffer) {
+  if (!buffer || buffer.length < 512) {
+    return false;
+  }
+  const magic = buffer.subarray(257, 263).toString("ascii").replace(/\0/g, "");
+  if (magic === "ustar") {
+    return true;
+  }
+
+  const storedChecksum = parseInt(buffer.subarray(148, 156).toString("ascii").replace(/\0/g, "").trim(), 8);
+  if (!Number.isFinite(storedChecksum)) {
+    return false;
+  }
+  let checksum = 0;
+  for (let index = 0; index < 512; index += 1) {
+    checksum += index >= 148 && index < 156 ? 32 : buffer[index];
+  }
+  return checksum === storedChecksum;
+}
+
 function detectMagic(buffer) {
   if (
     buffer.length >= 12 &&
@@ -1224,8 +2498,14 @@ function detectMagic(buffer) {
   if (buffer.length >= 3 && buffer.subarray(0, 3).equals(Buffer.from([0xff, 0xd8, 0xff]))) {
     return "jpeg";
   }
-  if (buffer.length >= 6 && buffer.subarray(0, 6).toString("ascii") === "GIF89a") {
+  if (buffer.length >= 6 && ["GIF87a", "GIF89a"].includes(buffer.subarray(0, 6).toString("ascii"))) {
     return "gif";
+  }
+  if (buffer.length >= 12 && buffer.subarray(4, 8).toString("ascii") === "ftyp") {
+    return "mp4";
+  }
+  if (buffer.length >= 2 && buffer.subarray(0, 2).toString("ascii") === "BM") {
+    return "bmp";
   }
   if (buffer.length >= 4 && (buffer.readUInt32LE(0) === 0xa1b2c3d4 || buffer.readUInt32LE(0) === 0xd4c3b2a1)) {
     return "pcap";
@@ -1247,6 +2527,9 @@ function detectMagic(buffer) {
   }
   if (buffer.length >= 3 && buffer[0] === 0x1f && buffer[1] === 0x8b && buffer[2] === 0x08) {
     return "gzip";
+  }
+  if (isTarBuffer(buffer)) {
+    return "tar";
   }
   return "";
 }
@@ -1316,11 +2599,14 @@ function detectFamily(filePath, sample) {
   if (magic === "pdf" || isOfficePackageExtension(extension) || [".doc", ".xls", ".ppt"].includes(extension)) {
     return { family: "document", badge: magic === "pdf" ? "PDF" : extension.slice(1).toUpperCase() || "DOC" };
   }
-  if (["png", "jpeg", "gif"].includes(magic) || [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"].includes(extension)) {
+  if (["png", "jpeg", "gif", "bmp"].includes(magic) || [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".webp", ".svg"].includes(extension)) {
     return { family: "image", badge: magic ? magic.toUpperCase() : extension.slice(1).toUpperCase() || "IMG" };
   }
   if (magic === "wav" || [".wav", ".mp3", ".flac", ".ogg", ".m4a"].includes(extension)) {
     return { family: "audio", badge: magic ? magic.toUpperCase() : extension.slice(1).toUpperCase() || "AUDIO" };
+  }
+  if (magic === "mp4" || [".mp4", ".mov", ".m4v", ".3gp"].includes(extension)) {
+    return { family: "video", badge: magic ? magic.toUpperCase() : extension.slice(1).toUpperCase() || "VIDEO" };
   }
   if (["pcap", "pcapng"].includes(magic) || [".pcap", ".pcapng", ".cap"].includes(extension)) {
     return { family: "network", badge: magic.toUpperCase() || extension.slice(1).toUpperCase() || "PCAP" };
@@ -1328,8 +2614,17 @@ function detectFamily(filePath, sample) {
   if (extension === ".apk") {
     return { family: "binary", badge: "APK" };
   }
-  if (["zip", "gzip"].includes(magic) || [".zip", ".7z", ".rar", ".tar", ".gz", ".tgz"].includes(extension)) {
+  if (["zip", "gzip", "tar"].includes(magic) || [".zip", ".7z", ".rar", ".tar", ".gz", ".tgz"].includes(extension)) {
     return { family: "archive", badge: magic.toUpperCase() || extension.slice(1).toUpperCase() || "ZIP" };
+  }
+  if (MODEL_EXTENSIONS.includes(extension)) {
+    return { family: "binary", badge: extension.slice(1).toUpperCase() || "MODEL" };
+  }
+  if (MEMORY_IMAGE_EXTENSIONS.includes(extension) || sample.subarray(0, 4).toString("ascii") === "MDMP") {
+    return { family: "binary", badge: "MEMORY" };
+  }
+  if (DISK_IMAGE_EXTENSIONS.includes(extension)) {
+    return { family: "binary", badge: "DISK" };
   }
   if (["elf", "pe"].includes(magic) || [".exe", ".dll", ".bin", ".so", ".elf", ".apk", ".jar"].includes(extension)) {
     return { family: "binary", badge: magic.toUpperCase() || extension.slice(1).toUpperCase() || "BIN" };
@@ -1340,10 +2635,40 @@ function detectFamily(filePath, sample) {
   return { family: "unknown", badge: extension.slice(1).toUpperCase() || "FILE" };
 }
 
+function containsPlaceholderFlag(text) {
+  const normalized = String(text || "")
+    .replace(/4/g, "a")
+    .replace(/3/g, "e");
+  return (
+    /(?:fake|dummy|placeholder|example|sample|test)[-_ ]?flag|flag[-_ ]?(?:fake|dummy|placeholder|example|sample|test)/i.test(normalized) ||
+    /\{(?:some[_ -]?text|your[_ -]?username|firstname[_ -]?surname|\.{3,})\}/i.test(normalized)
+  );
+}
+
+function isLowQualityFlagShape(value) {
+  const match = /^([A-Za-z0-9_]{2,32})\{([^{}\r\n]{3,160})\}$/.exec(String(value || ""));
+  if (!match) {
+    return false;
+  }
+  const body = match[2];
+  if (!KNOWN_FLAG_PREFIX.test(value) && body.length < 6) {
+    return true;
+  }
+  const compact = body.replace(/[^A-Za-z0-9]/g, "");
+  const unique = new Set(compact.toLowerCase()).size;
+  const mostCommon = compact
+    ? Math.max(...Array.from(new Set(compact)).map((char) => compact.split(char).length - 1)) / compact.length
+    : 1;
+  if (compact.length >= 5 && (unique <= 2 || mostCommon >= 0.78)) {
+    return true;
+  }
+  return /[`~<>\[\]\\]/.test(body) || compact.length / body.length < 0.58;
+}
+
 function findFlagCandidates(text, source) {
   const candidates = [];
   const patterns = [
-    /\b(?:flag|ctf|key|answer|picoCTF|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{[^{}\r\n]{3,160}\}/gi,
+    /\b(?:flag|ctf|key|answer|ductf|picoCTF|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{[^{}\r\n]{3,160}\}/gi,
     /\b[a-zA-Z0-9_]{2,32}\{[^{}\r\n]{3,160}\}/g,
     LOOSE_FLAG_PREFIX_GLOBAL,
   ];
@@ -1352,6 +2677,18 @@ function findFlagCandidates(text, source) {
     for (const match of text.matchAll(pattern)) {
       const value = match[0].trim();
       if (/^flag\s+(?:candidate|candidates|value|values|source|format|result|results)\b/i.test(value)) {
+        continue;
+      }
+      if (containsPlaceholderFlag(value)) {
+        continue;
+      }
+      if (isLowQualityFlagShape(value)) {
+        continue;
+      }
+      if (/[^\x20-\x7e]/.test(value)) {
+        continue;
+      }
+      if (/^NPF_\{[0-9a-f-]{32,40}\}$/i.test(value) || /^[a-z0-9_]{2,16}\{[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\}$/i.test(value)) {
         continue;
       }
       candidates.push({
@@ -1430,6 +2767,167 @@ function readPngDimensions(buffer) {
   };
 }
 
+function pngCrc32(buffer) {
+  let crc = 0xffffffff;
+  for (const byte of buffer) {
+    crc ^= byte;
+    for (let bit = 0; bit < 8; bit += 1) {
+      crc = (crc >>> 1) ^ (crc & 1 ? 0xedb88320 : 0);
+    }
+  }
+  return (crc ^ 0xffffffff) >>> 0;
+}
+
+function hasValidPngHeaderCrc(buffer) {
+  return (
+    buffer.length >= 33 &&
+    buffer.subarray(12, 16).toString("ascii") === "IHDR" &&
+    buffer.readUInt32BE(29) === pngCrc32(buffer.subarray(12, 29))
+  );
+}
+
+function analyzePngDimensionCandidates(buffer) {
+  if (
+    detectMagic(buffer) !== "png" ||
+    buffer.length < 33 ||
+    buffer.readUInt32BE(8) !== 13 ||
+    buffer.subarray(12, 16).toString("ascii") !== "IHDR"
+  ) {
+    return null;
+  }
+  const width = buffer.readUInt32BE(16);
+  const height = buffer.readUInt32BE(20);
+  const bitDepth = buffer[24];
+  const colorType = buffer[25];
+  const interlace = buffer[28];
+  const channels = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[colorType];
+  if (!channels || interlace !== 0 || ![1, 2, 4, 8, 16].includes(bitDepth)) {
+    return { width, height, candidates: [], anomalous: false, reason: "unsupported PNG color/interlace mode" };
+  }
+  const idat = Buffer.concat(iteratePngChunks(buffer).filter((chunk) => chunk.type === "IDAT").map((chunk) => chunk.data));
+  if (!idat.length) {
+    return { width, height, candidates: [], anomalous: false, reason: "no IDAT data" };
+  }
+  let inflated;
+  try {
+    inflated = zlib.inflateSync(idat);
+  } catch (_error) {
+    return { width, height, candidates: [], anomalous: false, reason: "IDAT inflate failed" };
+  }
+
+  const candidates = [];
+  for (let candidateWidth = 1; candidateWidth <= 8192; candidateWidth += 1) {
+    const rowBytes = Math.ceil((candidateWidth * channels * bitDepth) / 8);
+    const stride = rowBytes + 1;
+    if (inflated.length % stride !== 0) {
+      continue;
+    }
+    const candidateHeight = inflated.length / stride;
+    if (candidateHeight < 1 || candidateHeight > 8192 || candidateWidth * candidateHeight > 40_000_000) {
+      continue;
+    }
+    const checks = Math.min(candidateHeight, 256);
+    let validFilters = 0;
+    for (let row = 0; row < checks; row += 1) {
+      if (inflated[row * stride] <= 4) {
+        validFilters += 1;
+      }
+    }
+    const filterScore = checks ? validFilters / checks : 0;
+    if (filterScore < 0.75) {
+      continue;
+    }
+    const ratio = candidateWidth / candidateHeight;
+    const aspectScore = ratio >= 0.15 && ratio <= 6 ? 0.08 : 0;
+    candidates.push({
+      width: candidateWidth,
+      height: candidateHeight,
+      filterScore,
+      score: filterScore + aspectScore,
+      original: candidateWidth === width && candidateHeight === height,
+    });
+  }
+  candidates.sort((left, right) => right.score - left.score || Math.abs(Math.log(left.width / left.height)) - Math.abs(Math.log(right.width / right.height)));
+  const original = candidates.find((item) => item.original);
+  const bestAlternative = candidates.find((item) => !item.original);
+  const anomalous = Boolean(bestAlternative && bestAlternative.filterScore >= 0.98 && (!original || bestAlternative.filterScore - original.filterScore >= 0.15));
+  return {
+    width,
+    height,
+    bitDepth,
+    colorType,
+    inflatedBytes: inflated.length,
+    candidates: candidates.slice(0, 12),
+    anomalous,
+    reason: anomalous ? "IHDR dimensions do not match IDAT scanline structure" : "",
+  };
+}
+
+function patchPngDimensions(buffer, width, height) {
+  const repaired = Buffer.from(buffer);
+  repaired.writeUInt32BE(width, 16);
+  repaired.writeUInt32BE(height, 20);
+  repaired.writeUInt32BE(pngCrc32(repaired.subarray(12, 29)), 29);
+  return repaired;
+}
+
+function decodeBmpRaster(buffer) {
+  if (detectMagic(buffer) !== "bmp" || buffer.length < 54) {
+    return null;
+  }
+
+  const dataOffset = buffer.readUInt32LE(10);
+  const dibSize = buffer.readUInt32LE(14);
+  const width = buffer.readInt32LE(18);
+  const storedHeight = buffer.readInt32LE(22);
+  const planes = buffer.readUInt16LE(26);
+  const bitsPerPixel = buffer.readUInt16LE(28);
+  const compression = buffer.readUInt32LE(30);
+  const height = Math.abs(storedHeight);
+  const topDown = storedHeight < 0;
+
+  if (
+    dibSize < 40 ||
+    width <= 0 ||
+    height <= 0 ||
+    width > 16000 ||
+    height > 16000 ||
+    width * height > 40_000_000 ||
+    planes !== 1 ||
+    ![24, 32].includes(bitsPerPixel) ||
+    compression !== 0
+  ) {
+    return null;
+  }
+
+  const bytesPerPixel = bitsPerPixel / 8;
+  const rowStride = Math.floor((bitsPerPixel * width + 31) / 32) * 4;
+  if (dataOffset < 0 || dataOffset + rowStride * height > buffer.length) {
+    return null;
+  }
+
+  const data = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    const sourceY = topDown ? y : height - 1 - y;
+    const rowOffset = dataOffset + sourceY * rowStride;
+    for (let x = 0; x < width; x += 1) {
+      const sourceOffset = rowOffset + x * bytesPerPixel;
+      const targetOffset = (y * width + x) * 4;
+      data[targetOffset] = buffer[sourceOffset + 2];
+      data[targetOffset + 1] = buffer[sourceOffset + 1];
+      data[targetOffset + 2] = buffer[sourceOffset];
+      data[targetOffset + 3] = bitsPerPixel === 32 ? buffer[sourceOffset + 3] : 255;
+    }
+  }
+
+  return {
+    format: "bmp",
+    width,
+    height,
+    data,
+  };
+}
+
 function decodeImageRaster(buffer) {
   const magic = detectMagic(buffer);
   if (magic === "png") {
@@ -1449,6 +2947,9 @@ function decodeImageRaster(buffer) {
       height: parsed.height,
       data: Buffer.from(parsed.data),
     };
+  }
+  if (magic === "bmp") {
+    return decodeBmpRaster(buffer);
   }
   return null;
 }
@@ -1690,6 +3191,106 @@ function estimateToneFrequency(samples, sampleRate) {
   return frequency;
 }
 
+function goertzelPower(samples, start, length, sampleRate, frequency) {
+  const omega = (2 * Math.PI * frequency) / sampleRate;
+  const coefficient = 2 * Math.cos(omega);
+  let previous = 0;
+  let previousPrevious = 0;
+  for (let index = 0; index < length; index += 1) {
+    const sample = samples[start + index] || 0;
+    const current = sample + coefficient * previous - previousPrevious;
+    previousPrevious = previous;
+    previous = current;
+  }
+  return previousPrevious * previousPrevious + previous * previous - coefficient * previous * previousPrevious;
+}
+
+function dominantGoertzelFrequency(samples, start, length, sampleRate, frequencies) {
+  let bestFrequency = 0;
+  let bestPower = -1;
+  frequencies.forEach((frequency) => {
+    const power = goertzelPower(samples, start, length, sampleRate, frequency);
+    if (power > bestPower) {
+      bestPower = power;
+      bestFrequency = frequency;
+    }
+  });
+  return bestFrequency;
+}
+
+function normalizeSpokenFlagBrackets(text) {
+  return String(text || "")
+    .replace(/(?:open|left)(?:curly)?(?:bracket|brace)/gi, "{")
+    .replace(/(?:close|right)(?:curly)?(?:bracket|brace)/gi, "}")
+    .replace(/underscore/gi, "_")
+    .replace(/(flag|ductf|picoctf|uoftctf|moectf|actf|hitcon|sekai|balsn|uiuctf|n1ctf)\{/gi, "\n$1{");
+}
+
+function decodeAlphabetToneWav(buffer, wavInfo) {
+  const track = extractMonoAudioTrack(buffer, wavInfo, MAX_AUDIO_TONE_SAMPLES);
+  if (!track || track.sourceStep !== 1 || track.samples.length < track.sampleRate * 1.5 || track.sampleRate < 2000) {
+    return null;
+  }
+
+  const frequencyGrid = [];
+  for (let frequency = 200; frequency <= Math.min(3800, track.sampleRate / 2 - 40); frequency += 25) {
+    frequencyGrid.push(frequency);
+  }
+
+  let best = null;
+  for (let durationMs = 40; durationMs <= 220; durationMs += 5) {
+    const chunkLength = Math.round((track.sampleRate * durationMs) / 1000);
+    if (chunkLength < 32 || chunkLength * 26 > track.samples.length) {
+      continue;
+    }
+    const training = [];
+    for (let index = 0; index < 26; index += 1) {
+      training.push(dominantGoertzelFrequency(track.samples, index * chunkLength, chunkLength, track.sampleRate, frequencyGrid));
+    }
+    const deltas = training.slice(1).map((value, index) => value - training[index]);
+    const rising = deltas.filter((value) => value > 0).length;
+    const unique = new Set(training).size;
+    const medianDelta = computePercentile(deltas.filter((value) => value > 0), 0.5);
+    const regular = deltas.filter((value) => medianDelta > 0 && Math.abs(value - medianDelta) <= Math.max(25, medianDelta * 0.45)).length;
+    const score = rising * 2 + unique + regular;
+    if (!best || score > best.score) {
+      best = { durationMs, chunkLength, training, rising, unique, regular, score };
+    }
+  }
+
+  if (!best || best.rising < 23 || best.unique < 23 || best.regular < 20) {
+    return null;
+  }
+
+  const characters = "abcdefghijklmnopqrstuvwxyz";
+  const maxChunks = Math.min(12000, Math.floor(track.samples.length / best.chunkLength));
+  let decoded = "";
+  for (let index = 0; index < maxChunks; index += 1) {
+    const frequency = dominantGoertzelFrequency(
+      track.samples,
+      index * best.chunkLength,
+      best.chunkLength,
+      track.sampleRate,
+      best.training,
+    );
+    const letterIndex = best.training.indexOf(frequency);
+    decoded += letterIndex >= 0 ? characters[letterIndex] : "?";
+  }
+
+  const normalized = normalizeSpokenFlagBrackets(decoded);
+  const flags = findFlagCandidates(normalized, "WAV alphabet tone mapping");
+  if (!flags.length && !NATURAL_TEXT_HINT.test(normalized)) {
+    return null;
+  }
+  return {
+    durationMs: best.durationMs,
+    trainingFrequencies: best.training,
+    decoded,
+    normalized,
+    flags,
+  };
+}
+
 function summarizeDominantFrequencies(segments) {
   const buckets = new Map();
   segments.forEach((segment) => {
@@ -1859,6 +3460,7 @@ function analyzeWavSignal(buffer, wavInfo, options = {}) {
 
   const dominantFrequencies = summarizeDominantFrequencies(activeSegments);
   const morseCandidates = decodeMorseFromRuns(runs);
+  const alphabetTone = options.decodeAlphabet === false ? null : decodeAlphabetToneWav(buffer, wavInfo);
 
   return {
     sampleRate: track.sampleRate,
@@ -1866,6 +3468,7 @@ function analyzeWavSignal(buffer, wavInfo, options = {}) {
     activeSegments,
     dominantFrequencies,
     morseCandidates,
+    alphabetTone,
   };
 }
 
@@ -2300,14 +3903,18 @@ function buildPngStreams(parsed, traversal = "xy") {
 }
 
 function collectPngLSBCandidates(buffer) {
-  if (detectMagic(buffer) !== "png") {
+  const magic = detectMagic(buffer);
+  if (!["png", "bmp"].includes(magic)) {
     return [];
   }
 
   let parsed;
   try {
-    parsed = PNG.sync.read(buffer, { checkCRC: false });
+    parsed = decodeImageRaster(buffer);
   } catch (_error) {
+    return [];
+  }
+  if (!parsed) {
     return [];
   }
 
@@ -2319,7 +3926,7 @@ function collectPngLSBCandidates(buffer) {
         ["msb", "lsb"].forEach((bitOrder) => {
           const bits = values.map((value) => (value >> bitPlane) & 1);
           const decoded = decodeBufferAsText(bitsToBuffer(bits, bitOrder));
-          const flags = findFlagCandidates(decoded, `PNG-${traversal}-${name}-bit${bitPlane}-${bitOrder}`);
+          const flags = findFlagCandidates(decoded, `${magic.toUpperCase()}-${traversal}-${name}-bit${bitPlane}-${bitOrder}`);
           const printable = extractPrintableSegments(decoded, 12, 8);
           const score = Math.max(scoreDecodedText(decoded), flags.length ? 24 : 0);
           if (!flags.length && (!printable.length || score < 8)) {
@@ -2394,6 +4001,7 @@ function parseTcpSegment(buffer) {
     protocol: "tcp",
     srcPort,
     dstPort,
+    sequence: buffer.readUInt32BE(4),
     payload: buffer.subarray(headerLength),
     flags: buffer[13],
   };
@@ -2411,6 +4019,18 @@ function parseUdpDatagram(buffer) {
     srcPort,
     dstPort,
     payload: buffer.subarray(8, length),
+  };
+}
+
+function parseIcmpMessage(buffer) {
+  if (buffer.length < 4) return null;
+  return {
+    protocol: "icmp",
+    type: buffer[0],
+    code: buffer[1],
+    identifier: buffer.length >= 6 ? buffer.readUInt16BE(4) : null,
+    sequence: buffer.length >= 8 ? buffer.readUInt16BE(6) : null,
+    payload: buffer.subarray(buffer.length >= 8 ? 8 : 4),
   };
 }
 
@@ -2434,6 +4054,8 @@ function parseIpPacket(buffer) {
       ipVersion: 4,
       srcIp: formatIPv4(buffer, 12),
       dstIp: formatIPv4(buffer, 16),
+      ipId: buffer.readUInt16BE(4),
+      ttl: buffer[8],
     };
     if (protocol === 6) {
       const tcp = parseTcpSegment(payload);
@@ -2442,6 +4064,10 @@ function parseIpPacket(buffer) {
     if (protocol === 17) {
       const udp = parseUdpDatagram(payload);
       return udp ? { ...base, ...udp } : null;
+    }
+    if (protocol === 1) {
+      const icmp = parseIcmpMessage(payload);
+      return icmp ? { ...base, ...icmp } : null;
     }
     return { ...base, protocol: String(protocol), payload };
   }
@@ -2599,6 +4225,293 @@ function parseCaptureFrames(buffer) {
     return parsePcapNg(buffer);
   }
   return [];
+}
+
+const USB_CAPTURE_LINK_TYPES = new Set([189, 220, 249]);
+const HID_KEY_MAP = {
+  4: ["a", "A"], 5: ["b", "B"], 6: ["c", "C"], 7: ["d", "D"], 8: ["e", "E"], 9: ["f", "F"],
+  10: ["g", "G"], 11: ["h", "H"], 12: ["i", "I"], 13: ["j", "J"], 14: ["k", "K"], 15: ["l", "L"],
+  16: ["m", "M"], 17: ["n", "N"], 18: ["o", "O"], 19: ["p", "P"], 20: ["q", "Q"], 21: ["r", "R"],
+  22: ["s", "S"], 23: ["t", "T"], 24: ["u", "U"], 25: ["v", "V"], 26: ["w", "W"], 27: ["x", "X"],
+  28: ["y", "Y"], 29: ["z", "Z"],
+  30: ["1", "!"], 31: ["2", "@"], 32: ["3", "#"], 33: ["4", "$"], 34: ["5", "%"],
+  35: ["6", "^"], 36: ["7", "&"], 37: ["8", "*"], 38: ["9", "("], 39: ["0", ")"],
+  40: ["\n", "\n"], 41: ["<ESC>", "<ESC>"], 42: ["<BACKSPACE>", "<BACKSPACE>"], 43: ["\t", "\t"], 44: [" ", " "],
+  45: ["-", "_"], 46: ["=", "+"], 47: ["[", "{"], 48: ["]", "}"], 49: ["\\", "|"],
+  51: [";", ":"], 52: ["'", "\""], 53: ["`", "~"], 54: [",", "<"], 55: [".", ">"], 56: ["/", "?"],
+};
+
+function extractUsbCaptureRecord(frame) {
+  const data = frame.data;
+  if (!USB_CAPTURE_LINK_TYPES.has(frame.linkType) || !data.length) {
+    return null;
+  }
+  if (frame.linkType === 249) {
+    if (data.length < 27) {
+      return null;
+    }
+    const headerLength = data.readUInt16LE(0);
+    if (headerLength < 27 || headerLength > data.length) {
+      return null;
+    }
+    const payload = data.subarray(headerLength);
+    return payload.length
+      ? {
+          payload,
+          busId: data.readUInt16LE(17),
+          deviceAddress: data.readUInt16LE(19),
+          endpoint: data[21],
+          transferType: data[22],
+        }
+      : null;
+  }
+  if ((frame.linkType === 189 || frame.linkType === 220) && data.length > 64) {
+    return { payload: data.subarray(64), busId: null, deviceAddress: null, endpoint: null, transferType: null };
+  }
+  return { payload: data, busId: null, deviceAddress: null, endpoint: null, transferType: null };
+}
+
+function findKeyboardReport(payload) {
+  if (!payload || payload.length !== 8) {
+    return null;
+  }
+  if (payload[1] === 0 && Array.from(payload.subarray(2)).every((value) => value === 0 || (value >= 4 && value <= 0x65))) {
+    return payload;
+  }
+  return null;
+}
+
+function decodeHidKeyboardReports(reports) {
+  let text = "";
+  const events = [];
+  let previous = new Set();
+  reports.forEach((report, frameIndex) => {
+    const shift = Boolean(report[0] & 0x22);
+    const current = new Set(Array.from(report.subarray(2)).filter(Boolean));
+    current.forEach((keyCode) => {
+      if (previous.has(keyCode)) {
+        return;
+      }
+      const pair = HID_KEY_MAP[keyCode];
+      const value = pair ? pair[shift ? 1 : 0] : `<KEY_${keyCode}>`;
+      if (value === "<BACKSPACE>") {
+        text = text.slice(0, -1);
+      } else if (!value.startsWith("<") || value === "<ESC>") {
+        text += value;
+      }
+      events.push({ frameIndex, modifier: report[0], keyCode, value });
+    });
+    previous = current;
+  });
+  return { keyboardText: text, keyEvents: events };
+}
+
+function decodeHidMouseReport(payload) {
+  if (!payload) {
+    return null;
+  }
+  // Common report-ID 2 layout used by Logitech-style USB receivers.
+  if (payload.length === 9 && payload[0] === 2) {
+    return {
+      layout: "report-id-2-int16",
+      reportId: 2,
+      buttons: payload.readUInt16LE(1),
+      dx: payload.readInt16LE(3),
+      dy: payload.readInt16LE(5),
+      wheel: payload.readInt8(7),
+      horizontalWheel: payload.readInt8(8),
+    };
+  }
+  if (payload.length === 4) {
+    return {
+      layout: "boot-mouse-int8",
+      reportId: null,
+      buttons: payload[0],
+      dx: payload.readInt8(1),
+      dy: payload.readInt8(2),
+      wheel: payload.readInt8(3),
+      horizontalWheel: 0,
+    };
+  }
+  return null;
+}
+
+function decodeXboxControllerReport(payload) {
+  if (!payload || payload.length !== 48 || payload[0] !== 0x20) {
+    return null;
+  }
+  return {
+    packet: payload[2],
+    buttons: payload.readUInt16LE(4),
+    leftTrigger: payload.readUInt16LE(6),
+    rightTrigger: payload.readUInt16LE(8),
+    leftX: payload.readInt16LE(10),
+    leftY: payload.readInt16LE(12),
+    rightX: payload.readInt16LE(14),
+    rightY: payload.readInt16LE(16),
+  };
+}
+
+function analyzeUsbHidFrames(frames) {
+  const usbFrames = frames.filter((frame) => USB_CAPTURE_LINK_TYPES.has(frame.linkType));
+  if (!usbFrames.length) {
+    return { frameCount: 0, payloadCount: 0, keyboardText: "", keyEvents: [], mouseEvents: [], mouseLayouts: [], controllerEvents: [] };
+  }
+  const keyboardReports = [];
+  const mouseEvents = [];
+  const controllerEvents = [];
+  const mouseLayouts = new Set();
+  let payloadCount = 0;
+  let mouseX = 0;
+  let mouseY = 0;
+  usbFrames.forEach((frame, frameIndex) => {
+    const record = extractUsbCaptureRecord(frame);
+    if (!record?.payload?.length) {
+      return;
+    }
+    const { payload } = record;
+    payloadCount += 1;
+    const controller = decodeXboxControllerReport(payload);
+    if (controller) {
+      controllerEvents.push({
+        frameIndex,
+        busId: record.busId,
+        deviceAddress: record.deviceAddress,
+        endpoint: record.endpoint,
+        ...controller,
+      });
+      return;
+    }
+    const keyboard = record.endpoint === null || record.endpoint === 0x81 ? findKeyboardReport(payload) : null;
+    if (keyboard) {
+      keyboardReports.push(keyboard);
+      return;
+    }
+    const mouse = decodeHidMouseReport(payload);
+    if (mouse && (mouse.dx || mouse.dy || mouse.wheel || mouse.horizontalWheel || mouse.buttons)) {
+      mouseX += mouse.dx;
+      mouseY += mouse.dy;
+      mouseLayouts.add(mouse.layout);
+      mouseEvents.push({
+        frameIndex,
+        busId: record.busId,
+        deviceAddress: record.deviceAddress,
+        endpoint: record.endpoint,
+        ...mouse,
+        x: mouseX,
+        y: mouseY,
+      });
+    }
+  });
+  return {
+    frameCount: usbFrames.length,
+    payloadCount,
+    ...decodeHidKeyboardReports(keyboardReports),
+    mouseEvents,
+    mouseLayouts: Array.from(mouseLayouts),
+    controllerEvents,
+  };
+}
+
+function setPngPixel(png, x, y, value = 20) {
+  if (x < 0 || y < 0 || x >= png.width || y >= png.height) {
+    return;
+  }
+  const offset = (Math.floor(y) * png.width + Math.floor(x)) * 4;
+  png.data[offset] = value;
+  png.data[offset + 1] = value;
+  png.data[offset + 2] = value;
+  png.data[offset + 3] = 255;
+}
+
+function drawPngLine(png, startX, startY, endX, endY, thickness = 2) {
+  let x0 = Math.round(startX);
+  let y0 = Math.round(startY);
+  const x1 = Math.round(endX);
+  const y1 = Math.round(endY);
+  const dx = Math.abs(x1 - x0);
+  const sx = x0 < x1 ? 1 : -1;
+  const dy = -Math.abs(y1 - y0);
+  const sy = y0 < y1 ? 1 : -1;
+  let error = dx + dy;
+  while (true) {
+    for (let offsetY = -thickness; offsetY <= thickness; offsetY += 1) {
+      for (let offsetX = -thickness; offsetX <= thickness; offsetX += 1) {
+        if (offsetX * offsetX + offsetY * offsetY <= thickness * thickness) {
+          setPngPixel(png, x0 + offsetX, y0 + offsetY);
+        }
+      }
+    }
+    if (x0 === x1 && y0 === y1) {
+      break;
+    }
+    const doubled = 2 * error;
+    if (doubled >= dy) {
+      error += dy;
+      x0 += sx;
+    }
+    if (doubled <= dx) {
+      error += dx;
+      y0 += sy;
+    }
+  }
+}
+
+function renderUsbMouseTrack(mouseEvents, transform = "normal") {
+  const points = mouseEvents
+    .filter((item) => item.dx || item.dy)
+    .map((item) => {
+      if (transform === "swap-xy") return { x: item.y, y: item.x };
+      if (transform === "invert-y") return { x: item.x, y: -item.y };
+      return { x: item.x, y: item.y };
+    });
+  if (points.length < 2) {
+    return null;
+  }
+  const minX = Math.min(...points.map((item) => item.x));
+  const maxX = Math.max(...points.map((item) => item.x));
+  const minY = Math.min(...points.map((item) => item.y));
+  const maxY = Math.max(...points.map((item) => item.y));
+  const rangeX = Math.max(1, maxX - minX);
+  const rangeY = Math.max(1, maxY - minY);
+  const margin = 28;
+  const scale = Math.min(1, 1400 / rangeX, 1000 / rangeY);
+  const width = Math.max(180, Math.ceil(rangeX * scale) + margin * 2);
+  const height = Math.max(180, Math.ceil(rangeY * scale) + margin * 2);
+  if (width * height > 8_000_000) {
+    return null;
+  }
+  const png = new PNG({ width, height });
+  png.data.fill(255);
+  const project = (point) => ({
+    x: margin + (point.x - minX) * scale,
+    y: margin + (point.y - minY) * scale,
+  });
+  let previous = project(points[0]);
+  points.slice(1).forEach((point) => {
+    const current = project(point);
+    drawPngLine(png, previous.x, previous.y, current.x, current.y, 1);
+    previous = current;
+  });
+  return PNG.sync.write(png);
+}
+
+function renderControllerStickHeatmap(controllerEvents, xKey, yKey) {
+  const points = controllerEvents.filter((item) => Number.isFinite(item[xKey]) && Number.isFinite(item[yKey]));
+  const unique = new Set(points.map((item) => `${item[xKey]},${item[yKey]}`));
+  if (points.length < 20 || unique.size < 20) {
+    return null;
+  }
+  const size = 720;
+  const margin = 20;
+  const png = new PNG({ width: size, height: size });
+  png.data.fill(255);
+  points.forEach((item) => {
+    const x = margin + Math.round(((item[xKey] + 32768) / 65535) * (size - margin * 2));
+    const y = margin + Math.round(((32767 - item[yKey]) / 65535) * (size - margin * 2));
+    setPngPixel(png, x, y, 18);
+  });
+  return PNG.sync.write(png);
 }
 
 function parseDnsName(buffer, startOffset, depth = 0) {
@@ -2849,6 +4762,53 @@ function normalizeSessionKey(packet) {
   return [left, right].sort().join(" <-> ");
 }
 
+function collectTrafficCandidateResults(buffer, label) {
+  if (!buffer || buffer.length < 4 || buffer.length > 2 * 1024 * 1024) return [];
+  const results = [];
+  const direct = decodeBufferAsText(buffer).replace(/\0/g, "").trim();
+  const directFlags = findFlagCandidates(direct, label);
+  const printable = scorePrintableRatio(buffer);
+  const variedReadableText =
+    printable > 0.88 && direct.length >= 8 && /[A-Za-z0-9]{4}/.test(direct) && new Set(Array.from(direct)).size >= 4;
+  if (directFlags.length || NATURAL_TEXT_HINT.test(direct) || variedReadableText) {
+    results.push({ label, text: direct.slice(0, MAX_TEXT_BYTES) });
+  }
+  smartDecodeTextContent(buffer).forEach((item) => {
+    if (findFlagCandidates(item.value, `${label} (${item.label})`).length || NATURAL_TEXT_HINT.test(item.value)) {
+      results.push({ label: `${label} -> ${item.label}`, text: item.value });
+    }
+  });
+  const deduped = new Map();
+  results.forEach((item) => deduped.set(`${item.label}@@${item.text}`, item));
+  return Array.from(deduped.values()).slice(0, 24);
+}
+
+function reassembleDirectionalChunks(chunks) {
+  const ordered = chunks
+    .slice()
+    .sort((left, right) =>
+      Number.isFinite(left.sequence) && Number.isFinite(right.sequence) ? left.sequence - right.sequence : left.frameIndex - right.frameIndex,
+    );
+  if (!ordered.length || !ordered.every((item) => Number.isFinite(item.sequence))) {
+    return Buffer.concat(ordered.map((item) => item.payload)).subarray(0, 2 * 1024 * 1024);
+  }
+  const parts = [];
+  let expectedSequence = null;
+  ordered.forEach((item) => {
+    if (expectedSequence === null || item.sequence >= expectedSequence) {
+      parts.push(item.payload);
+      expectedSequence = item.sequence + item.payload.length;
+      return;
+    }
+    const overlap = expectedSequence - item.sequence;
+    if (overlap < item.payload.length) {
+      parts.push(item.payload.subarray(overlap));
+      expectedSequence += item.payload.length - overlap;
+    }
+  });
+  return Buffer.concat(parts).subarray(0, 2 * 1024 * 1024);
+}
+
 function analyzeTrafficBuffer(buffer) {
   const frames = parseCaptureFrames(buffer);
   const summary = {
@@ -2862,15 +4822,31 @@ function analyzeTrafficBuffer(buffer) {
     tokens: [],
     sessions: [],
     exportedObjects: [],
+    streamObjects: [],
+    covertCandidates: [],
+    usbHid: {
+      frameCount: 0,
+      payloadCount: 0,
+      keyboardText: "",
+      keyEvents: [],
+      mouseEvents: [],
+      mouseLayouts: [],
+      controllerEvents: [],
+    },
   };
 
   if (!frames.length) {
     return summary;
   }
 
+  summary.usbHid = analyzeUsbHidFrames(frames);
   const sessions = new Map();
+  const icmpPayloads = new Map();
+  const ipIds = [];
+  const ttls = [];
+  const dnsLabels = [];
 
-  frames.forEach((frame) => {
+  frames.forEach((frame, frameIndex) => {
     const packet = parseFramePayload(frame.data, frame.linkType);
     if (!packet || !packet.payload) {
       return;
@@ -2884,10 +4860,27 @@ function analyzeTrafficBuffer(buffer) {
         endpoints: `${packet.srcIp}:${packet.srcPort} -> ${packet.dstIp}:${packet.dstPort}`,
         packets: 0,
         bytes: 0,
+        directions: new Map(),
       };
       current.packets += 1;
       current.bytes += packet.payload.length;
+      if (packet.payload.length) {
+        const direction = `${packet.srcIp}:${packet.srcPort} -> ${packet.dstIp}:${packet.dstPort}`;
+        const chunks = current.directions.get(direction) || [];
+        chunks.push({ frameIndex, sequence: packet.sequence, payload: packet.payload });
+        current.directions.set(direction, chunks);
+      }
       sessions.set(sessionKey, current);
+    }
+    if (packet.ipVersion === 4) {
+      ipIds.push(packet.ipId & 0xff);
+      ttls.push(packet.ttl & 0xff);
+    }
+    if (packet.protocol === "icmp" && packet.payload.length) {
+      const key = `${packet.srcIp} -> ${packet.dstIp} type=${packet.type} code=${packet.code}`;
+      const parts = icmpPayloads.get(key) || [];
+      parts.push(packet.payload);
+      icmpPayloads.set(key, parts);
     }
 
     if (packet.protocol === "udp" && (packet.srcPort === 53 || packet.dstPort === 53)) {
@@ -2895,6 +4888,11 @@ function analyzeTrafficBuffer(buffer) {
       if (dns) {
         summary.dnsQueries.push(...dns.questions);
         summary.dnsAnswers.push(...dns.answers);
+        dns.questions.forEach((question) => {
+          const name = question.replace(/\s+\[\d+\]$/, "");
+          const firstLabel = name.split(".")[0];
+          if (firstLabel) dnsLabels.push(firstLabel);
+        });
       }
       return;
     }
@@ -2962,9 +4960,45 @@ function analyzeTrafficBuffer(buffer) {
   summary.tlsServerNames = dedupeStrings(summary.tlsServerNames).slice(0, 20);
   summary.cookies = dedupeStrings(summary.cookies).slice(0, 12);
   summary.tokens = dedupeStrings(summary.tokens).slice(0, 12);
+  const candidateResults = [];
+  const streamObjects = [];
+  sessions.forEach((session) => {
+    session.directions.forEach((chunks, direction) => {
+      const content = reassembleDirectionalChunks(chunks);
+      if (content.length < 4) return;
+      const useful = collectTrafficCandidateResults(content, `stream ${direction}`);
+      candidateResults.push(...useful);
+      if (useful.length || detectMagic(content)) {
+        streamObjects.push({
+          name: `stream-${String(streamObjects.length + 1).padStart(3, "0")}${scorePrintableRatio(content) > 0.82 ? ".txt" : ".bin"}`,
+          content,
+        });
+      }
+    });
+  });
+  icmpPayloads.forEach((parts, key) => {
+    candidateResults.push(...collectTrafficCandidateResults(Buffer.concat(parts), `ICMP payload ${key}`));
+  });
+  if (dnsLabels.length >= 2) {
+    candidateResults.push(...collectTrafficCandidateResults(Buffer.from(dnsLabels.join(""), "utf8"), "DNS first-label stream"));
+  }
+  if (ipIds.length >= 4 && new Set(ipIds).size >= 3) {
+    candidateResults.push(...collectTrafficCandidateResults(Buffer.from(ipIds), "IPv4 ID low-byte stream"));
+  }
+  if (ttls.length >= 4 && new Set(ttls).size >= 3) {
+    candidateResults.push(...collectTrafficCandidateResults(Buffer.from(ttls), "IPv4 TTL stream"));
+  }
+  summary.covertCandidates = dedupeStrings(candidateResults.map((item) => `${item.label}@@${item.text}`))
+    .map((entry) => {
+      const separator = entry.indexOf("@@");
+      return { label: entry.slice(0, separator), text: entry.slice(separator + 2) };
+    })
+    .slice(0, 40);
+  summary.streamObjects = streamObjects.slice(0, 24);
   summary.sessions = Array.from(sessions.values())
     .sort((left, right) => right.bytes - left.bytes)
-    .slice(0, 12);
+    .slice(0, 12)
+    .map(({ directions, ...session }) => session);
   summary.sessionCount = sessions.size;
 
   return summary;
@@ -3008,6 +5042,25 @@ function buildTrafficSummaryText(fileName, summary) {
   if (summary.sessions.length) {
     lines.push("# SESSIONS");
     summary.sessions.forEach((item) => lines.push(`${item.protocol} ${item.endpoints} packets=${item.packets} bytes=${item.bytes}`));
+    lines.push("");
+  }
+  if (summary.covertCandidates.length) {
+    lines.push("# COVERT / REASSEMBLED CANDIDATES");
+    summary.covertCandidates.forEach((item) => lines.push(`${item.label}\n${item.text}\n`));
+  }
+  if (summary.usbHid?.frameCount) {
+    lines.push("# USB-HID");
+    lines.push(`frames: ${summary.usbHid.frameCount}`);
+    lines.push(`payloads: ${summary.usbHid.payloadCount || 0}`);
+    lines.push(`key-events: ${summary.usbHid.keyEvents.length}`);
+    lines.push(`mouse-events: ${summary.usbHid.mouseEvents.length}`);
+    lines.push(`controller-events: ${summary.usbHid.controllerEvents?.length || 0}`);
+    if (summary.usbHid.mouseLayouts?.length) {
+      lines.push(`mouse-layouts: ${summary.usbHid.mouseLayouts.join(", ")}`);
+    }
+    if (summary.usbHid.keyboardText) {
+      lines.push("", "## KEYBOARD TEXT", summary.usbHid.keyboardText);
+    }
     lines.push("");
   }
 
@@ -3357,6 +5410,675 @@ function parseElfRelocationSection(buffer, sections, section, littleEndian, is64
   };
 }
 
+function collectElfPwnStrings(buffer, sections) {
+  const collected = [];
+  let scannedBytes = 0;
+  const maxScannedBytes = 2 * 1024 * 1024;
+  const usefulSections = new Set([".rodata", ".data", ".data.rel.ro", ".dynstr", ".strtab"]);
+
+  for (const section of sections) {
+    if (!usefulSections.has(section.name) || (section.flags & 4n) !== 0n || scannedBytes >= maxScannedBytes) {
+      continue;
+    }
+    const offset = toSafeNumber(section.offset);
+    const size = toSafeNumber(section.size);
+    if (offset === null || size === null || offset < 0 || size <= 0 || offset + size > buffer.length) {
+      continue;
+    }
+    const scanSize = Math.min(size, maxScannedBytes - scannedBytes);
+    collected.push(...extractAsciiStrings(buffer.subarray(offset, offset + scanSize), 4, 500));
+    scannedBytes += scanSize;
+  }
+
+  const interestingPattern =
+    /(?:\/bin\/(?:sh|bash)|(?:^|\/)flag(?:\.txt)?|choice|option|menu|password|name|size|index|content|input|again|goodbye|welcome|shell|admin|secret|token|error|invalid|%[-+ #0-9$.*hljztL]*(?:p|n|s|x))/i;
+  return dedupeStrings(collected)
+    .filter((value) => value.length <= 240 && interestingPattern.test(value))
+    .slice(0, 120);
+}
+
+function parseElfBuildId(buffer, sections, littleEndian) {
+  const noteSections = sections.filter((section) => section.type === 7 || section.name === ".note.gnu.build-id");
+  const align4 = (value) => (value + 3) & ~3;
+
+  for (const section of noteSections) {
+    const offset = toSafeNumber(section.offset);
+    const size = toSafeNumber(section.size);
+    if (offset === null || size === null || offset < 0 || size <= 0 || offset + size > buffer.length) {
+      continue;
+    }
+    const end = offset + size;
+    let cursor = offset;
+    while (cursor + 12 <= end) {
+      const nameSize = readUIntValue(buffer, cursor, 4, littleEndian);
+      const descriptionSize = readUIntValue(buffer, cursor + 4, 4, littleEndian);
+      const noteType = readUIntValue(buffer, cursor + 8, 4, littleEndian);
+      const nameStart = cursor + 12;
+      const descriptionStart = nameStart + align4(nameSize);
+      const next = descriptionStart + align4(descriptionSize);
+      if (nameSize > 256 || descriptionSize > 4096 || next > end) {
+        break;
+      }
+      const name = buffer.subarray(nameStart, nameStart + nameSize).toString("ascii").replace(/\0/g, "");
+      if (name === "GNU" && noteType === 3 && descriptionSize > 0) {
+        return buffer.subarray(descriptionStart, descriptionStart + descriptionSize).toString("hex");
+      }
+      cursor = next;
+    }
+  }
+  return "";
+}
+
+const SYSCALL_NAMES = {
+  62: {
+    0: "read", 1: "write", 2: "open", 3: "close", 9: "mmap", 10: "mprotect", 11: "munmap", 15: "rt_sigreturn",
+    39: "getpid", 59: "execve", 60: "exit", 231: "exit_group", 257: "openat", 322: "execveat",
+  },
+  183: {
+    56: "openat", 57: "close", 63: "read", 64: "write", 93: "exit", 94: "exit_group", 221: "execve", 222: "mmap", 226: "mprotect",
+  },
+  3: { 1: "exit", 3: "read", 4: "write", 5: "open", 6: "close", 11: "execve", 125: "mprotect", 192: "mmap2", 252: "exit_group" },
+};
+
+function getSyscallLabel(machine, number) {
+  const name = SYSCALL_NAMES[machine]?.[number];
+  return name ? `${number} (${name})` : String(number);
+}
+
+function analyzeSeccompBpf(buffer, sections, machine, littleEndian) {
+  const validCodes = new Set([0x00, 0x04, 0x05, 0x06, 0x07, 0x0c, 0x15, 0x20, 0x25, 0x35, 0x45, 0x54, 0x74, 0x80, 0x87]);
+  const policies = [];
+  sections
+    .filter((section) => (section.flags & 4n) === 0n && /(?:rodata|data|bpf|seccomp)/i.test(section.name))
+    .forEach((section) => {
+      const start = toSafeNumber(section.offset);
+      const size = toSafeNumber(section.size);
+      if (start === null || size === null || size < 32 || start + size > buffer.length) return;
+      const end = start + Math.min(size, 2 * 1024 * 1024);
+      for (let offset = start; offset + 32 <= end; offset += 8) {
+        const instructions = [];
+        let cursor = offset;
+        while (cursor + 8 <= end && instructions.length < 80) {
+          const code = readUInt16(buffer, cursor, littleEndian);
+          const jt = buffer[cursor + 2];
+          const jf = buffer[cursor + 3];
+          const k = readUInt32(buffer, cursor + 4, littleEndian);
+          if (!validCodes.has(code)) break;
+          instructions.push({ code, jt, jf, k });
+          cursor += 8;
+          if (code === 0x06 && instructions.length >= 4) {
+            const nextCode = cursor + 2 <= end ? readUInt16(buffer, cursor, littleEndian) : -1;
+            if (!validCodes.has(nextCode)) break;
+          }
+        }
+        const loadsSyscallNumber = instructions.some((item) => item.code === 0x20 && item.k === 0);
+        const comparisons = instructions.filter((item) => item.code === 0x15);
+        const returns = instructions.filter((item) => item.code === 0x06);
+        if (!loadsSyscallNumber || comparisons.length < 1 || returns.length < 2) continue;
+        const key = `${section.name}:${offset}`;
+        if (policies.some((item) => item.key === key || item.instructions.map((entry) => `${entry.code}:${entry.k}`).join("|") === instructions.map((entry) => `${entry.code}:${entry.k}`).join("|"))) {
+          continue;
+        }
+        const syscallNumbers = dedupeStrings(comparisons.map((item) => String(item.k)))
+          .map(Number)
+          .filter((number) => number < 2048);
+        policies.push({
+          key,
+          section: section.name,
+          offset,
+          instructions,
+          syscalls: syscallNumbers.map((number) => getSyscallLabel(machine, number)),
+          returns: dedupeStrings(
+            returns.map((item) => {
+              if (item.k === 0x7fff0000) return "ALLOW";
+              if ((item.k & 0xffff0000) === 0x00050000) return `ERRNO(${item.k & 0xffff})`;
+              if (item.k === 0) return "KILL";
+              return formatHex(item.k);
+            }),
+          ),
+        });
+        if (policies.length >= 8) return;
+      }
+    });
+  return policies;
+}
+
+function parseElfCoreReport(buffer, programHeaders, littleEndian, is64, machine) {
+  const align4 = (value) => (value + 3) & ~3;
+  const notes = [];
+  const registers = {};
+  const signals = [];
+  programHeaders
+    .filter((header) => header.type === 4 && header.offset !== null && header.fileSize)
+    .forEach((header) => {
+      let cursor = header.offset;
+      const end = Math.min(buffer.length, header.offset + header.fileSize);
+      while (cursor + 12 <= end && notes.length < 120) {
+        const nameSize = readUInt32(buffer, cursor, littleEndian);
+        const descSize = readUInt32(buffer, cursor + 4, littleEndian);
+        const noteType = readUInt32(buffer, cursor + 8, littleEndian);
+        const nameStart = cursor + 12;
+        const descStart = nameStart + align4(nameSize);
+        const next = descStart + align4(descSize);
+        if (nameSize > 1024 || descSize > 16 * 1024 * 1024 || next > end) break;
+        const name = buffer.subarray(nameStart, nameStart + nameSize).toString("ascii").replace(/\0/g, "");
+        const desc = buffer.subarray(descStart, descStart + descSize);
+        const printable = extractPrintableSegments(desc.toString("latin1"), 4, 12);
+        const typeNames = { 1: "NT_PRSTATUS", 3: "NT_PRPSINFO", 6: "NT_AUXV", 0x46494c45: "NT_FILE", 0x53494749: "NT_SIGINFO" };
+        notes.push({ name, type: typeNames[noteType] || formatHex(noteType), size: descSize, printable });
+        if ((noteType === 0x53494749 || noteType === 1) && desc.length >= 4) {
+          const signal = readUInt32(desc, noteType === 1 && desc.length >= 16 ? 12 : 0, littleEndian);
+          if (signal > 0 && signal < 128) signals.push(signal);
+        }
+        if (noteType === 1 && is64 && machine === 62 && desc.length >= 112 + 27 * 8) {
+          const base = 112;
+          const readRegister = (index) => readBigUIntValue(desc, base + index * 8, littleEndian);
+          Object.assign(registers, {
+            RIP: readRegister(16),
+            RSP: readRegister(19),
+            RBP: readRegister(4),
+            RAX: readRegister(10),
+            RDI: readRegister(14),
+            RSI: readRegister(13),
+            RDX: readRegister(12),
+          });
+        }
+        cursor = next;
+      }
+    });
+  const mappings = programHeaders
+    .filter((header) => header.type === 1)
+    .map((header) => ({
+      address: header.virtualAddress,
+      memorySize: header.memorySize,
+      fileSize: header.fileSize,
+      flags: header.flags,
+    }))
+    .slice(0, 80);
+  return {
+    notes,
+    signals: dedupeStrings(signals.map(String)).map(Number),
+    registers,
+    mappings,
+  };
+}
+
+function collectElfGlibcVersions(buffer) {
+  const sample = buffer.subarray(0, Math.min(buffer.length, 16 * 1024 * 1024));
+  return dedupeStrings(extractAsciiStrings(sample, 7, 12000).filter((value) => /^GLIBC_\d+(?:\.\d+)*$/.test(value))).sort((left, right) =>
+    left.localeCompare(right, undefined, { numeric: true }),
+  );
+}
+
+function getElfRole(type, interpreter, soname) {
+  if (type === 4) {
+    return "core-dump";
+  }
+  if (/^libc(?:-\d+(?:\.\d+)*)?\.so(?:\.6)?$/i.test(soname)) {
+    return "libc-runtime";
+  }
+  if (/^(?:ld-linux|ld-musl|ld-).*\.so/i.test(soname)) {
+    return "dynamic-loader";
+  }
+  if (type === 2) {
+    return "executable";
+  }
+  if (type === 3 && interpreter) {
+    return "pie-executable";
+  }
+  if (type === 3) {
+    return "shared-library";
+  }
+  return "relocatable/object";
+}
+
+function collectElfPwnSurface(buffer, sections, symbolTables, relocations, programHeaders, context) {
+  const symbolNames = dedupeStrings([
+    ...symbolTables.flatMap((table) => table.namesByIndex || []),
+    ...relocations.flatMap((entry) => entry.symbols || []),
+  ]).filter(Boolean);
+  const normalizedSymbols = symbolNames.map((name) => name.replace(/@.*$/, ""));
+  const hasSymbol = (name) => normalizedSymbols.includes(name);
+  const hasSymbolPrefix = (prefix) => normalizedSymbols.some((name) => name.startsWith(prefix));
+
+  const dangerousDefinitions = [
+    { name: "gets", severity: "critical", reason: "unbounded line input" },
+    { name: "strcpy", severity: "high", reason: "unbounded string copy" },
+    { name: "strcat", severity: "high", reason: "unbounded string append" },
+    { name: "sprintf", severity: "high", reason: "unbounded formatted write" },
+    { name: "scanf", severity: "medium", reason: "format-controlled input" },
+    { name: "__isoc99_scanf", severity: "medium", reason: "format-controlled input" },
+    { name: "read", severity: "medium", reason: "raw-length input primitive" },
+    { name: "recv", severity: "medium", reason: "network input primitive" },
+    { name: "memcpy", severity: "medium", reason: "length-controlled memory copy" },
+    { name: "printf", severity: "medium", reason: "format-string sink" },
+    { name: "fprintf", severity: "medium", reason: "format-string sink" },
+    { name: "snprintf", severity: "low", reason: "formatted write" },
+    { name: "system", severity: "high", reason: "command execution primitive" },
+    { name: "execve", severity: "high", reason: "process execution primitive" },
+    { name: "mprotect", severity: "medium", reason: "memory permission primitive" },
+    { name: "malloc", severity: "low", reason: "heap allocation surface" },
+    { name: "calloc", severity: "low", reason: "heap allocation surface" },
+    { name: "realloc", severity: "medium", reason: "heap resize surface" },
+    { name: "free", severity: "low", reason: "heap lifetime surface" },
+  ];
+  const dangerousFunctions = dangerousDefinitions.filter((item) => hasSymbol(item.name));
+  const pwnStrings = collectElfPwnStrings(buffer, sections);
+  const selectSymbols = (names) => names.filter(hasSymbol);
+  const ioProfile = {
+    input: selectSymbols(["gets", "fgets", "scanf", "__isoc99_scanf", "read", "recv", "recvfrom", "getline"]),
+    output: selectSymbols(["puts", "printf", "fprintf", "write", "send", "sendto"]),
+    network: selectSymbols(["socket", "bind", "listen", "accept", "accept4", "connect", "recv", "recvfrom", "send", "sendto"]),
+    heap: selectSymbols(["malloc", "calloc", "realloc", "free"]),
+    process: selectSymbols(["fork", "vfork", "clone", "execve", "system"]),
+    constraints: selectSymbols(["alarm", "setitimer", "seccomp", "prctl", "chroot", "setuid", "setgid"]),
+    setup: selectSymbols(["setvbuf", "setbuf", "signal"]),
+  };
+  ioProfile.mode = ioProfile.network.length ? "network-service" : ioProfile.input.length || ioProfile.output.length ? "stdio/local-process" : "unknown";
+  const formatStringLiterals = pwnStrings.filter((value) => /%[-+ #0-9$.*hljztL]*(?:p|n|s|x)/i.test(value)).slice(0, 20);
+  const shellStrings = pwnStrings.filter((value) => /\/bin\/(?:sh|bash)/i.test(value)).slice(0, 10);
+  const flagPathStrings = pwnStrings.filter((value) => /(?:^|\/)flag(?:\.txt)?/i.test(value)).slice(0, 10);
+  const menuStrings = pwnStrings.filter((value) => /choice|option|menu|size|index|content|again|goodbye/i.test(value)).slice(0, 20);
+
+  const gnuStack = programHeaders.find((header) => header.type === 0x6474e551);
+  const hasRelro = programHeaders.some((header) => header.type === 0x6474e552);
+  const nx = gnuStack ? (gnuStack.flags & 1) === 0 : null;
+  const pie = context.type === 3 && Boolean(context.interpreter);
+  const sharedObject = context.type === 3 && !context.interpreter;
+  const canary = hasSymbol("__stack_chk_fail") || hasSymbol("__stack_chk_guard");
+  const fortify = hasSymbolPrefix("__") && normalizedSymbols.some((name) => /^__.+_chk$/.test(name));
+  const stripped = !sections.some((section) => section.name === ".symtab");
+  const relro = hasRelro ? (context.bindNow ? "full" : "partial") : "none";
+  const allocatedSections = sections.filter((section) => (section.flags & 2n) !== 0n);
+  const describeRegion = (section) => ({
+    name: section.name,
+    address: section.address,
+    size: section.size,
+    permissions: `${(section.flags & 1n) !== 0n ? "w" : "-"}${(section.flags & 2n) !== 0n ? "a" : "-"}${(section.flags & 4n) !== 0n ? "x" : "-"}`,
+  });
+  const memorySurface = {
+    writable: allocatedSections.filter((section) => (section.flags & 1n) !== 0n).map(describeRegion),
+    executable: allocatedSections.filter((section) => (section.flags & 4n) !== 0n).map(describeRegion),
+    rwx: allocatedSections.filter((section) => (section.flags & 1n) !== 0n && (section.flags & 4n) !== 0n).map(describeRegion),
+    staging: allocatedSections
+      .filter((section) => (section.flags & 1n) !== 0n && /^(?:\.bss|\.data|\.data\.rel\.ro|\.got|\.got\.plt|\.dynamic)$/i.test(section.name))
+      .map(describeRegion),
+  };
+  const targetSymbols = normalizedSymbols.filter((name) => /^(win|shell|get_shell|spawn_shell|backdoor|secret|give_flag|print_flag)$/i.test(name));
+  const hypotheses = [];
+  const addHypothesis = (id, priority, title, reason, verify) => {
+    if (!hypotheses.some((item) => item.id === id)) {
+      hypotheses.push({ id, priority, title, reason, verify });
+    }
+  };
+  const stackInputFunctions = ["gets", "strcpy", "strcat", "sprintf", "read", "recv"].filter(hasSymbol);
+  const formatFunctions = ["printf", "fprintf", "sprintf", "snprintf"].filter(hasSymbol);
+
+  if (targetSymbols.length) {
+    addHypothesis(
+      "target-function",
+      "high",
+      "ret2win / target function",
+      `Interesting symbols: ${targetSymbols.slice(0, 8).join(", ")}`,
+      "Confirm the target function's preconditions and whether controlled return flow can reach it.",
+    );
+  }
+  if (stackInputFunctions.length) {
+    addHypothesis(
+      "stack-input",
+      canary ? "medium" : "high",
+      "stack overflow / ret2libc / ROP",
+      `Input or copy primitives: ${stackInputFunctions.join(", ")}; canary=${canary ? "present" : "absent"}`,
+      "Confirm the input bound, crash offset, saved return-address control, and required leaks inside the challenge runtime.",
+    );
+  }
+  if (formatFunctions.length) {
+    addHypothesis(
+      "format-string",
+      "medium",
+      "format-string audit",
+      `Formatted-output primitives: ${formatFunctions.join(", ")}`,
+      "Check whether attacker-controlled data can become the format argument before treating this as exploitable.",
+    );
+  }
+  if (hasSymbol("system") || hasSymbol("execve")) {
+    addHypothesis(
+      "command-primitive",
+      "high",
+      "existing command-execution primitive",
+      `Imported primitive: ${["system", "execve"].filter(hasSymbol).join(", ")}`,
+      "Locate call sites and argument control; do not execute the binary outside the supplied challenge environment.",
+    );
+  }
+  if (relro !== "full") {
+    addHypothesis(
+      "got-overwrite",
+      relro === "none" ? "high" : "medium",
+      "GOT overwrite candidate",
+      `RELRO is ${relro}`,
+      "Confirm a usable arbitrary or controlled write and select a reachable GOT entry.",
+    );
+  }
+  if (nx === false) {
+    addHypothesis(
+      "executable-stack",
+      "high",
+      "direct shellcode candidate",
+      "GNU_STACK is executable",
+      "Confirm stack control and architecture before testing shellcode in the challenge runtime.",
+    );
+  }
+  if (pie === false && !sharedObject) {
+    addHypothesis(
+      "fixed-addresses",
+      "medium",
+      "fixed binary addresses",
+      "PIE is disabled",
+      "Use static code/data addresses only after confirming ASLR and loader behavior in the challenge runtime.",
+    );
+  }
+  if (hasSymbol("mprotect")) {
+    addHypothesis(
+      "mprotect",
+      "medium",
+      "memory-permission pivot",
+      "mprotect is imported",
+      "Inspect call sites and available argument-control gadgets for an executable-memory path.",
+    );
+  }
+  if (ioProfile.heap.length >= 2 || menuStrings.length >= 2) {
+    addHypothesis(
+      "heap-state",
+      ioProfile.heap.includes("free") ? "medium" : "low",
+      "heap lifecycle / menu-state audit",
+      `Heap primitives: ${ioProfile.heap.join(", ") || "not imported"}; menu clues: ${menuStrings.slice(0, 4).join(" | ") || "none"}`,
+      "Map allocation, edit, show, and delete operations; verify index, size, lifetime, and double-use behavior.",
+    );
+  }
+  if (formatStringLiterals.length) {
+    addHypothesis(
+      "format-literals",
+      formatStringLiterals.some((value) => /%[-+ #0-9$.*hljztL]*n/i.test(value)) ? "high" : "medium",
+      "format-string literal / leak audit",
+      `Interesting format strings: ${formatStringLiterals.slice(0, 5).join(" | ")}`,
+      "Determine whether these strings are fixed program output or attacker-controlled format arguments.",
+    );
+  }
+  if (shellStrings.length) {
+    addHypothesis(
+      "shell-string",
+      "medium",
+      "existing shell string",
+      `Shell strings: ${shellStrings.join(", ")}`,
+      "Locate references and confirm whether a reachable call can receive the shell-string address.",
+    );
+  }
+  if (ioProfile.constraints.includes("seccomp") || ioProfile.constraints.includes("prctl")) {
+    addHypothesis(
+      "sandbox-constraint",
+      "high",
+      "seccomp / syscall constraint",
+      `Constraint imports: ${ioProfile.constraints.filter((name) => name === "seccomp" || name === "prctl").join(", ")}`,
+      "Recover the allowed syscall policy before choosing shellcode, ORW, or command-execution paths.",
+    );
+  }
+  if (context.seccompPolicies?.length) {
+    addHypothesis(
+      "seccomp-bpf",
+      "high",
+      "recovered seccomp BPF policy",
+      `Recovered ${context.seccompPolicies.length} classic-BPF candidate(s); compared syscalls: ${context.seccompPolicies.flatMap((item) => item.syscalls).slice(0, 12).join(", ")}`,
+      "Verify jump direction and return actions before choosing shellcode or ORW syscalls.",
+    );
+  }
+  if (ioProfile.network.length) {
+    addHypothesis(
+      "network-service",
+      "medium",
+      "network-service interaction",
+      `Network primitives: ${ioProfile.network.join(", ")}`,
+      "Reconstruct message framing, connection lifetime, and fork-per-connection behavior before fuzzing.",
+    );
+  }
+  if (memorySurface.rwx.length) {
+    addHypothesis(
+      "rwx-region",
+      "high",
+      "existing RWX region",
+      `RWX sections: ${memorySurface.rwx.map((item) => item.name).join(", ")}`,
+      "Confirm the region is mapped with write and execute permissions at runtime before using it for staged code.",
+    );
+  } else if (memorySurface.staging.length && (hasSymbol("read") || hasSymbol("recv"))) {
+    addHypothesis(
+      "staged-input",
+      "medium",
+      "writable staging region",
+      `Writable candidates: ${memorySurface.staging.map((item) => item.name).join(", ")}`,
+      "Confirm the region's runtime address and available input primitive before using it for a second-stage payload or ROP data.",
+    );
+  }
+  if (context.role === "core-dump") {
+    addHypothesis(
+      "core-dump",
+      "high",
+      "core dump crash-state recovery",
+      "ELF type is CORE",
+      "Match the core with its executable and runtime libraries, then recover the fault address, registers, stack, and mapped files.",
+    );
+  }
+  if (context.role === "libc-runtime" || context.role === "dynamic-loader") {
+    addHypothesis(
+      "runtime-library",
+      "high",
+      "provided runtime matching",
+      `ELF role: ${context.role}; build-id=${context.buildId || "unknown"}`,
+      "Use the provided runtime files together with the challenge executable; do not assume the host system libc or loader.",
+    );
+  }
+
+  const gadgets = [];
+  const gadgetCounts = new Map();
+  const architecture64 = context.machine === 62;
+  const architecture32 = context.machine === 3;
+  const registerNames = architecture64
+    ? ["rax", "rcx", "rdx", "rbx", "rsp", "rbp", "rsi", "rdi"]
+    : architecture32
+      ? ["eax", "ecx", "edx", "ebx", "esp", "ebp", "esi", "edi"]
+      : [];
+  const addGadget = (label, section, sectionFileOffset, fileIndex, length) => {
+    gadgetCounts.set(label, (gadgetCounts.get(label) || 0) + 1);
+    if (gadgets.length >= 64) {
+      return;
+    }
+    const sectionAddress = typeof section.address === "bigint" ? section.address : BigInt(section.address || 0);
+    const relativeOffset = fileIndex - sectionFileOffset;
+    gadgets.push({
+      label,
+      section: section.name,
+      offset: relativeOffset,
+      fileOffset: fileIndex,
+      address: sectionAddress + BigInt(relativeOffset),
+      size: length,
+    });
+  };
+  if (architecture64 || architecture32) {
+    const extendedRegisterNames = ["r8", "r9", "r10", "r11", "r12", "r13", "r14", "r15"];
+    sections
+      .filter((section) => (section.flags & 4n) !== 0n)
+      .forEach((section) => {
+        const fileOffset = toSafeNumber(section.offset);
+        const size = toSafeNumber(section.size);
+        if (fileOffset === null || size === null || fileOffset < 0 || fileOffset + size > buffer.length) {
+          return;
+        }
+        const end = fileOffset + size;
+        for (let index = fileOffset; index < end; index += 1) {
+          const popChain = [];
+          let popCursor = index;
+          while (popChain.length < 4 && popCursor < end) {
+            if (buffer[popCursor] >= 0x58 && buffer[popCursor] <= 0x5f) {
+              popChain.push(registerNames[buffer[popCursor] - 0x58]);
+              popCursor += 1;
+              continue;
+            }
+            if (
+              architecture64 &&
+              popCursor + 1 < end &&
+              buffer[popCursor] === 0x41 &&
+              buffer[popCursor + 1] >= 0x58 &&
+              buffer[popCursor + 1] <= 0x5f
+            ) {
+              popChain.push(extendedRegisterNames[buffer[popCursor + 1] - 0x58]);
+              popCursor += 2;
+              continue;
+            }
+            break;
+          }
+          if (popChain.length >= 2 && popCursor < end && buffer[popCursor] === 0xc3) {
+            addGadget(`${popChain.map((name) => `pop ${name}`).join("; ")}; ret`, section, fileOffset, index, popCursor - index + 1);
+          }
+          if (buffer[index] === 0xc3) {
+            addGadget("ret", section, fileOffset, index, 1);
+          }
+          if (index + 1 < end && buffer[index] >= 0x58 && buffer[index] <= 0x5f && buffer[index + 1] === 0xc3) {
+            addGadget(`pop ${registerNames[buffer[index] - 0x58]}; ret`, section, fileOffset, index, 2);
+          }
+          if (index + 1 < end && buffer[index] === 0xc9 && buffer[index + 1] === 0xc3) {
+            addGadget("leave; ret", section, fileOffset, index, 2);
+          }
+          if (index + 2 < end && buffer[index] === 0x0f && buffer[index + 1] === 0x05 && buffer[index + 2] === 0xc3) {
+            addGadget("syscall; ret", section, fileOffset, index, 3);
+          }
+          if (index + 2 < end && buffer[index] === 0xcd && buffer[index + 1] === 0x80 && buffer[index + 2] === 0xc3) {
+            addGadget("int 0x80; ret", section, fileOffset, index, 3);
+          }
+          if (index + 1 < end && buffer[index] === 0x0f && buffer[index + 1] === 0x05) {
+            addGadget("syscall", section, fileOffset, index, 2);
+          }
+          if (index + 1 < end && buffer[index] === 0xcd && buffer[index + 1] === 0x80) {
+            addGadget("int 0x80", section, fileOffset, index, 2);
+          }
+          if (index + 1 < end && buffer[index] === 0xff && buffer[index + 1] === 0xe4) {
+            addGadget(`jmp ${architecture64 ? "rsp" : "esp"}`, section, fileOffset, index, 2);
+          }
+          if (index + 1 < end && buffer[index] === 0xff && buffer[index + 1] === 0xd4) {
+            addGadget(`call ${architecture64 ? "rsp" : "esp"}`, section, fileOffset, index, 2);
+          }
+          if (architecture64 && index + 2 < end && buffer[index] === 0x48 && buffer[index + 1] === 0x94 && buffer[index + 2] === 0xc3) {
+            addGadget("xchg rsp, rax; ret", section, fileOffset, index, 3);
+          }
+          if (
+            architecture64 &&
+            index + 4 < end &&
+            buffer[index] === 0x48 &&
+            buffer[index + 1] === 0x83 &&
+            buffer[index + 2] === 0xc4 &&
+            buffer[index + 4] === 0xc3
+          ) {
+            addGadget(`add rsp, ${buffer[index + 3]}; ret`, section, fileOffset, index, 5);
+          }
+        }
+      });
+  }
+  if ([8, 40, 183, 243].includes(context.machine)) {
+    sections
+      .filter((section) => (section.flags & 4n) !== 0n)
+      .forEach((section) => {
+        const fileOffset = toSafeNumber(section.offset);
+        const size = toSafeNumber(section.size);
+        if (fileOffset === null || size === null || fileOffset < 0 || fileOffset + size > buffer.length) {
+          return;
+        }
+        const end = fileOffset + size;
+        for (let index = fileOffset; index + 4 <= end; index += 4) {
+          const word = context.littleEndian ? buffer.readUInt32LE(index) : buffer.readUInt32BE(index);
+          if (context.machine === 183) {
+            if (word === 0xd65f03c0) addGadget("ret", section, fileOffset, index, 4);
+            if (((word & 0xffe0001f) >>> 0) === 0xd4000001) addGadget("svc #0", section, fileOffset, index, 4);
+            if (((word & 0xfffffc1f) >>> 0) === 0xd61f0000) addGadget(`br x${(word >>> 5) & 31}`, section, fileOffset, index, 4);
+            if (((word & 0xfffffc1f) >>> 0) === 0xd63f0000) addGadget(`blr x${(word >>> 5) & 31}`, section, fileOffset, index, 4);
+            if (word === 0xa8c17bfd && index + 8 <= end) {
+              const next = context.littleEndian ? buffer.readUInt32LE(index + 4) : buffer.readUInt32BE(index + 4);
+              if (next === 0xd65f03c0) addGadget("ldp x29, x30, [sp], #16; ret", section, fileOffset, index, 8);
+            }
+          } else if (context.machine === 40) {
+            if (word === 0xe12fff1e) addGadget("bx lr", section, fileOffset, index, 4);
+            if (((word & 0xff000000) >>> 0) === 0xef000000) addGadget("svc #0", section, fileOffset, index, 4);
+          } else if (context.machine === 243) {
+            if (word === 0x00008067) addGadget("ret", section, fileOffset, index, 4);
+            if (word === 0x00000073) addGadget("ecall", section, fileOffset, index, 4);
+          } else if (context.machine === 8) {
+            if (word === 0x03e00008) addGadget("jr ra", section, fileOffset, index, 4);
+            if (((word & 0xfc00003f) >>> 0) === 0x0000000c) addGadget("mips syscall", section, fileOffset, index, 4);
+          }
+        }
+      });
+  }
+  const gadgetLabels = Array.from(gadgetCounts.keys());
+  const hasGadget = (pattern) => gadgetLabels.some((label) => pattern.test(label));
+  const gadgetCapabilities = {
+    argumentControl: architecture64
+      ? ["rdi", "rsi", "rdx", "rcx", "r8", "r9"].filter((register) => hasGadget(new RegExp(`(?:^|; )pop ${register}(?:;|$)`)))
+      : registerNames.filter((register) => hasGadget(new RegExp(`(?:^|; )pop ${register}(?:;|$)`))),
+    syscall: hasGadget(/^(?:syscall|int 0x80|svc #0|ecall|mips syscall)(?:; ret)?$/),
+    stackPivot: hasGadget(/^(?:leave; ret|pop (?:rsp|esp); ret|xchg rsp, rax; ret|jmp (?:rsp|esp)|call (?:rsp|esp))$/),
+    stackAdjust: hasGadget(/^add rsp, \d+; ret$/),
+    alignmentRet: gadgetCounts.has("ret") || gadgetCounts.has("bx lr") || gadgetCounts.has("jr ra"),
+  };
+  if ((ioProfile.constraints.includes("seccomp") || ioProfile.constraints.includes("prctl")) && gadgetCapabilities.syscall) {
+    addHypothesis(
+      "orw-syscall",
+      gadgetCapabilities.argumentControl.length >= 3 ? "high" : "medium",
+      "seccomp-aware ORW / syscall chain",
+      `syscall gadget present; controlled argument registers: ${gadgetCapabilities.argumentControl.join(", ") || "none detected"}`,
+      "Recover the syscall allowlist and confirm gadgets or writable state for open/read/write-style chains.",
+    );
+  }
+  if (gadgetCapabilities.stackPivot) {
+    addHypothesis(
+      "stack-pivot",
+      "medium",
+      "stack pivot / staged ROP",
+      "A short stack-pivot gadget was detected",
+      "Confirm a controlled writable region and the amount of first-stage input before choosing a pivot.",
+    );
+  }
+
+  return {
+    checksec: {
+      nx,
+      pie,
+      sharedObject,
+      relro,
+      canary,
+      fortify,
+      stripped,
+      rpath: Boolean(context.runpath),
+      executableStack: gnuStack ? (gnuStack.flags & 1) !== 0 : null,
+    },
+    dangerousFunctions,
+    targetSymbols,
+    ioProfile,
+    interestingStrings: pwnStrings,
+    formatStringLiterals,
+    shellStrings,
+    flagPathStrings,
+    menuStrings,
+    runtime: {
+      role: context.role,
+      buildId: context.buildId,
+      glibcVersions: context.glibcVersions,
+    },
+    memorySurface,
+    hypotheses,
+    gadgets,
+    gadgetCapabilities,
+    gadgetCounts: Array.from(gadgetCounts.entries())
+      .map(([label, count]) => ({ label, count }))
+      .sort((left, right) => right.count - left.count),
+  };
+}
+
 function parseElfBinary(buffer) {
   if (detectMagic(buffer) !== "elf" || buffer.length < 52) {
     return null;
@@ -3398,6 +6120,8 @@ function parseElfBinary(buffer) {
       }
       const nameOffset = readWord(offset, 4);
       const sectionType = readWord(offset + 4, 4);
+      const flags = is64 ? readBigUIntValue(buffer, offset + 8, littleEndian) : BigInt(readWord(offset + 8, 4));
+      const address = is64 ? readBigUIntValue(buffer, offset + 16, littleEndian) : BigInt(readWord(offset + 12, 4));
       const fileOffset = is64 ? readBigUIntValue(buffer, offset + 24, littleEndian) : BigInt(readWord(offset + 16, 4));
       const size = is64 ? readBigUIntValue(buffer, offset + 32, littleEndian) : BigInt(readWord(offset + 20, 4));
       const entrySize = is64 ? readBigUIntValue(buffer, offset + 56, littleEndian) : BigInt(readWord(offset + 36, 4));
@@ -3407,6 +6131,8 @@ function parseElfBinary(buffer) {
         index,
         nameOffset,
         type: sectionType,
+        flags,
+        address,
         offset: fileOffset,
         size,
         entrySize,
@@ -3435,6 +6161,7 @@ function parseElfBinary(buffer) {
   });
 
   let interpreter = "";
+  const programHeaders = [];
   const programHeaderStart = toSafeNumber(programHeaderOffset);
   if (programHeaderStart !== null && programHeaderSize >= (is64 ? 56 : 32)) {
     const maxHeaders = Math.min(programHeaderCount, 64);
@@ -3444,14 +6171,24 @@ function parseElfBinary(buffer) {
         break;
       }
       const programType = readWord(offset, 4);
+      const flags = readWord(offset + (is64 ? 4 : 24), 4);
+      const fileOffset = is64 ? toSafeNumber(readBigUIntValue(buffer, offset + 8, littleEndian)) : readWord(offset + 4, 4);
+      const virtualAddress = is64 ? readBigUIntValue(buffer, offset + 16, littleEndian) : BigInt(readWord(offset + 8, 4));
+      const fileSize = is64 ? toSafeNumber(readBigUIntValue(buffer, offset + 32, littleEndian)) : readWord(offset + 16, 4);
+      const memorySize = is64 ? readBigUIntValue(buffer, offset + 40, littleEndian) : BigInt(readWord(offset + 20, 4));
+      programHeaders.push({
+        type: programType,
+        flags,
+        offset: fileOffset,
+        virtualAddress,
+        fileSize,
+        memorySize,
+      });
       if (programType !== 3) {
         continue;
       }
-      const fileOffset = is64 ? toSafeNumber(readBigUIntValue(buffer, offset + 8, littleEndian)) : readWord(offset + 4, 4);
-      const fileSize = is64 ? toSafeNumber(readBigUIntValue(buffer, offset + 32, littleEndian)) : readWord(offset + 16, 4);
       if (fileOffset !== null && fileSize !== null && fileOffset + fileSize <= buffer.length) {
         interpreter = readCString(buffer, fileOffset, Math.min(fileSize, 256));
-        break;
       }
     }
   }
@@ -3461,6 +6198,7 @@ function parseElfBinary(buffer) {
   const neededLibraries = [];
   let runpath = "";
   let soname = "";
+  let bindNow = false;
   if (dynamicSection && dynstrSection) {
     const dynamicOffset = toSafeNumber(dynamicSection.offset);
     const dynamicSize = toSafeNumber(dynamicSection.size);
@@ -3481,6 +6219,9 @@ function parseElfBinary(buffer) {
         const value = is64 ? readBigUIntValue(buffer, offset + 8, littleEndian) : BigInt(readWord(offset + 4, 4));
         if (tag === 0n) {
           break;
+        }
+        if (tag === 24n || (tag === 30n && (value & 8n) !== 0n) || (tag === 0x6ffffffbn && (value & 1n) !== 0n)) {
+          bindNow = true;
         }
         const stringOffset = toSafeNumber(value);
         if (stringOffset === null || stringOffset >= dynstr.length) {
@@ -3527,6 +6268,23 @@ function parseElfBinary(buffer) {
     .filter((section) => section.type === 4 || section.type === 9)
     .map((section) => parseElfRelocationSection(buffer, sections, section, littleEndian, is64, symbolNameMaps))
     .filter(Boolean);
+  const buildId = parseElfBuildId(buffer, sections, littleEndian);
+  const glibcVersions = collectElfGlibcVersions(buffer);
+  const role = getElfRole(type, interpreter, soname);
+  const seccompPolicies = analyzeSeccompBpf(buffer, sections, machine, littleEndian);
+  const coreReport = type === 4 ? parseElfCoreReport(buffer, programHeaders, littleEndian, is64, machine) : null;
+  const pwnSurface = collectElfPwnSurface(buffer, sections, symbolTables, relocations, programHeaders, {
+    type,
+    machine,
+    interpreter,
+    bindNow,
+    runpath,
+    role,
+    buildId,
+    glibcVersions,
+    littleEndian,
+    seccompPolicies,
+  });
 
   return {
     format: is64 ? "ELF64" : "ELF32",
@@ -3538,12 +6296,20 @@ function parseElfBinary(buffer) {
     sections: sections.slice(0, 64).map((section) => ({
       name: section.name,
       type: section.type,
+      flags: section.flags,
+      address: section.address,
       offset: section.offset,
       size: section.size,
     })),
     neededLibraries: dedupeStrings(neededLibraries).slice(0, 24),
     runpath,
     soname,
+    bindNow,
+    role,
+    buildId,
+    glibcVersions,
+    seccompPolicies,
+    coreReport,
     commentPreview,
     symbolTables: symbolTables.map((table) => ({
       name: table.name,
@@ -3553,6 +6319,7 @@ function parseElfBinary(buffer) {
       objects: table.objects,
     })),
     relocations,
+    pwnSurface,
   };
 }
 
@@ -3561,9 +6328,24 @@ function buildElfSummaryText(fileName, report) {
   lines.push(`format: ${report.format}`);
   lines.push(`endian: ${report.endian}`);
   lines.push(`type: ${report.type}`);
+  lines.push(`role: ${report.role}`);
   lines.push(`machine: ${report.machine}`);
   lines.push(`entry: ${formatHex(report.entry)}`);
+  lines.push(`build-id: ${report.buildId || "unknown"}`);
+  lines.push(`glibc-versions: ${report.glibcVersions.join(", ") || "none detected"}`);
   lines.push("");
+  if (report.pwnSurface) {
+    const checksec = report.pwnSurface.checksec;
+    lines.push("# CHECKSEC-LITE");
+    lines.push(`RELRO: ${checksec.relro}`);
+    lines.push(`NX: ${checksec.nx === null ? "unknown" : checksec.nx ? "enabled" : "disabled"}`);
+    lines.push(`PIE: ${checksec.pie ? "enabled" : checksec.sharedObject ? "shared-object" : "disabled"}`);
+    lines.push(`Canary: ${checksec.canary ? "found" : "not found"}`);
+    lines.push(`Fortify: ${checksec.fortify ? "found" : "not found"}`);
+    lines.push(`Stripped: ${checksec.stripped ? "yes" : "no"}`);
+    lines.push(`RPATH/RUNPATH: ${checksec.rpath ? "present" : "none"}`);
+    lines.push("");
+  }
   if (report.interpreter) {
     lines.push("# INTERPRETER");
     lines.push(report.interpreter);
@@ -3587,6 +6369,26 @@ function buildElfSummaryText(fileName, report) {
   if (report.commentPreview.length) {
     lines.push("# COMMENT");
     report.commentPreview.forEach((item) => lines.push(item));
+    lines.push("");
+  }
+  if (report.seccompPolicies.length) {
+    lines.push("# SECCOMP BPF");
+    report.seccompPolicies.forEach((policy, index) => {
+      lines.push(`policy ${index + 1}: ${policy.section}+${formatHex(policy.offset)}`);
+      lines.push(`syscalls: ${policy.syscalls.join(", ") || "none recovered"}`);
+      lines.push(`returns: ${policy.returns.join(", ") || "none recovered"}`);
+    });
+    lines.push("");
+  }
+  if (report.coreReport) {
+    lines.push("# CORE DUMP");
+    lines.push(`notes: ${report.coreReport.notes.length}`);
+    lines.push(`signals: ${report.coreReport.signals.join(", ") || "unknown"}`);
+    const registerEntries = Object.entries(report.coreReport.registers);
+    if (registerEntries.length) {
+      lines.push(`registers: ${registerEntries.map(([name, value]) => `${name}=${formatHex(value)}`).join(", ")}`);
+    }
+    lines.push(`load-mappings: ${report.coreReport.mappings.length}`);
     lines.push("");
   }
   if (report.symbolTables.length) {
@@ -3615,6 +6417,59 @@ function buildElfSummaryText(fileName, report) {
       lines.push("");
     });
   }
+  if (report.pwnSurface && report.pwnSurface.dangerousFunctions.length) {
+    lines.push("# PWN SURFACE");
+    report.pwnSurface.dangerousFunctions.forEach((item) => lines.push(`${item.name}: ${item.severity} - ${item.reason}`));
+    lines.push("");
+  }
+  if (report.pwnSurface && report.pwnSurface.hypotheses.length) {
+    lines.push("# PWN PATHS");
+    report.pwnSurface.hypotheses.forEach((item) => {
+      lines.push(`[${item.priority}] ${item.title}`);
+      lines.push(`reason: ${item.reason}`);
+      lines.push(`verify: ${item.verify}`);
+    });
+    lines.push("");
+  }
+  if (report.pwnSurface) {
+    const profile = report.pwnSurface.ioProfile;
+    lines.push("# PWN I/O PROFILE");
+    lines.push(`mode: ${profile.mode}`);
+    ["input", "output", "network", "heap", "process", "constraints", "setup"].forEach((group) => {
+      lines.push(`${group}: ${profile[group].join(", ") || "none"}`);
+    });
+    lines.push("");
+  }
+  if (report.pwnSurface && report.pwnSurface.interestingStrings.length) {
+    lines.push("# PWN INTERESTING STRINGS");
+    report.pwnSurface.interestingStrings.forEach((value) => lines.push(value));
+    lines.push("");
+  }
+  if (report.pwnSurface) {
+    const memory = report.pwnSurface.memorySurface;
+    lines.push("# PWN MEMORY SURFACE");
+    lines.push(`writable: ${memory.writable.map((item) => `${item.name}@${formatHex(item.address)}`).join(", ") || "none detected"}`);
+    lines.push(`executable: ${memory.executable.map((item) => `${item.name}@${formatHex(item.address)}`).join(", ") || "none detected"}`);
+    lines.push(`rwx: ${memory.rwx.map((item) => `${item.name}@${formatHex(item.address)}`).join(", ") || "none detected"}`);
+    lines.push(`staging: ${memory.staging.map((item) => `${item.name}@${formatHex(item.address)}`).join(", ") || "none detected"}`);
+    lines.push("");
+  }
+  if (report.pwnSurface && report.pwnSurface.gadgetCounts.length) {
+    lines.push("# ROP GADGET-LITE");
+    const capabilities = report.pwnSurface.gadgetCapabilities;
+    lines.push(`argument-control: ${capabilities.argumentControl.join(", ") || "none detected"}`);
+    lines.push(`syscall: ${capabilities.syscall ? "yes" : "no"}`);
+    lines.push(`stack-pivot: ${capabilities.stackPivot ? "yes" : "no"}`);
+    lines.push(`stack-adjust: ${capabilities.stackAdjust ? "yes" : "no"}`);
+    lines.push(`alignment-ret: ${capabilities.alignmentRet ? "yes" : "no"}`);
+    lines.push("");
+    report.pwnSurface.gadgetCounts.slice(0, 16).forEach((item) => lines.push(`${item.label}: ${item.count}`));
+    lines.push("");
+    report.pwnSurface.gadgets.slice(0, 32).forEach((item) => {
+      lines.push(`${formatHex(item.address)} ${item.section}+${formatHex(item.offset)} ${item.label}`);
+    });
+    lines.push("");
+  }
   if (report.sections.length) {
     lines.push("# SECTIONS");
     report.sections.forEach((section) => {
@@ -3622,6 +6477,65 @@ function buildElfSummaryText(fileName, report) {
     });
     lines.push("");
   }
+  return `${lines.join("\n")}\n`;
+}
+
+function buildSeccompReport(fileName, policies) {
+  const lines = ["# SECCOMP CLASSIC-BPF REPORT", `file: ${fileName}`, ""];
+  policies.forEach((policy, index) => {
+    lines.push(`## POLICY ${index + 1}`);
+    lines.push(`location: ${policy.section}+${formatHex(policy.offset)}`);
+    lines.push(`compared-syscalls: ${policy.syscalls.join(", ") || "none recovered"}`);
+    lines.push(`return-actions: ${policy.returns.join(", ") || "none recovered"}`);
+    lines.push("");
+    policy.instructions.forEach((instruction, instructionIndex) => {
+      lines.push(
+        `${String(instructionIndex).padStart(2, "0")}: code=${formatHex(instruction.code)} jt=${instruction.jt} jf=${instruction.jf} k=${formatHex(
+          instruction.k,
+        )}`,
+      );
+    });
+    lines.push("");
+  });
+  lines.push("Verify jump direction and architecture-specific syscall numbers before selecting an exploitation path.", "");
+  return `${lines.join("\n")}\n`;
+}
+
+function buildCoreReport(fileName, report) {
+  const lines = ["# ELF CORE DUMP REPORT", `file: ${fileName}`, ""];
+  lines.push(`signals: ${report.signals.join(", ") || "unknown"}`);
+  lines.push("");
+  lines.push("# REGISTERS");
+  const registerEntries = Object.entries(report.registers);
+  if (registerEntries.length) {
+    registerEntries.forEach(([name, value]) => lines.push(`${name}: ${formatHex(value)}`));
+  } else {
+    lines.push("No supported register set recovered.");
+  }
+  lines.push("");
+  lines.push("# NOTES");
+  report.notes.forEach((note, index) => {
+    lines.push(`${index + 1}. ${note.name || "unknown"} ${note.type} size=${note.size}`);
+    if (note.printable.length) {
+      lines.push(`   text: ${note.printable.join(" | ")}`);
+    }
+  });
+  if (!report.notes.length) {
+    lines.push("No PT_NOTE entries recovered.");
+  }
+  lines.push("");
+  lines.push("# LOAD MAPPINGS");
+  report.mappings.forEach((mapping, index) => {
+    lines.push(
+      `${index + 1}. address=${formatHex(mapping.address)} memory=${formatHex(mapping.memorySize)} file=${formatHex(mapping.fileSize)} flags=${formatHex(
+        mapping.flags,
+      )}`,
+    );
+  });
+  if (!report.mappings.length) {
+    lines.push("No PT_LOAD mappings recovered.");
+  }
+  lines.push("");
   return `${lines.join("\n")}\n`;
 }
 
@@ -4195,6 +7109,570 @@ function buildApkSummaryText(fileName, report) {
   return `${lines.join("\n")}\n`;
 }
 
+function analyzeModelArtifact(buffer, extension) {
+  const report = {
+    format: extension.slice(1).toUpperCase() || "MODEL",
+    metadata: [],
+    tensors: [],
+    operators: [],
+    dangerousPickleHints: [],
+    strings: [],
+  };
+  const strings = dedupeStrings(extractAsciiStrings(buffer, 4, 3000).concat(extractUnicodeStrings(buffer, 4, 500)));
+  report.strings = strings.filter((value) => /flag|secret|token|prompt|system|model|tensor|layer|input|output/i.test(value)).slice(0, 80);
+
+  if (extension === ".safetensors" && buffer.length >= 8) {
+    try {
+      const headerLength = Number(buffer.readBigUInt64LE(0));
+      if (headerLength > 0 && headerLength <= Math.min(buffer.length - 8, 16 * 1024 * 1024)) {
+        const header = JSON.parse(buffer.subarray(8, 8 + headerLength).toString("utf8"));
+        report.format = "SAFETENSORS";
+        Object.entries(header.__metadata__ || {}).forEach(([key, value]) => report.metadata.push(`${key}: ${value}`));
+        Object.entries(header)
+          .filter(([key]) => key !== "__metadata__")
+          .slice(0, 200)
+          .forEach(([name, value]) => report.tensors.push(`${name} dtype=${value?.dtype || "?"} shape=${JSON.stringify(value?.shape || [])}`));
+      }
+    } catch (_error) {
+      // malformed model headers remain available to strings analysis
+    }
+  }
+
+  if (extension === ".onnx") {
+    const knownOps = [
+      "Conv", "Relu", "Gemm", "MatMul", "Add", "Mul", "Sub", "Div", "Softmax", "Sigmoid", "Tanh", "Reshape",
+      "Transpose", "Concat", "Slice", "Gather", "ReduceMean", "BatchNormalization", "Dropout", "Constant",
+    ];
+    report.operators = knownOps.filter((operator) => strings.includes(operator));
+  }
+
+  if ([".pkl", ".pickle", ".joblib", ".pt", ".pth", ".ckpt"].includes(extension)) {
+    report.dangerousPickleHints = strings
+      .filter((value) => /(?:^|\.)(?:os|posix|subprocess|builtins|eval|exec|system|popen|reduce)(?:$|\.)/i.test(value) || /__reduce__|subprocess|os\.system/i.test(value))
+      .slice(0, 40);
+  }
+  return report;
+}
+
+function buildModelReport(fileName, report) {
+  const lines = [`# MODEL ARTIFACT REPORT`, `file: ${fileName}`, `format: ${report.format}`, ""];
+  appendReportSection(lines, "metadata", report.metadata, "(none)");
+  appendReportSection(lines, "tensors", report.tensors, "(none)");
+  appendReportSection(lines, "operators", report.operators, "(none)");
+  appendReportSection(lines, "unsafe pickle indicators", report.dangerousPickleHints, "(none; content was not executed)");
+  appendReportSection(lines, "interesting strings", report.strings, "(none)");
+  return `${lines.join("\n")}\n`;
+}
+
+function normalizeOcrFlagCandidates(text) {
+  const candidates = [];
+  const pattern = /\b([A-Za-z0-9_]{2,32})\{([^{}\r\n]{3,160})\}/g;
+  for (const match of String(text || "").matchAll(pattern)) {
+    const body = match[2]
+      .trim()
+      .replace(/\s+/g, "_")
+      .replace(/_+([,.;:!?])/g, "$1");
+    candidates.push(`${match[1]}{${body}}`);
+  }
+  return dedupeStrings(candidates);
+}
+
+function formatGuid(buffer, offset) {
+  if (offset < 0 || offset + 16 > buffer.length) {
+    return "";
+  }
+  return [
+    buffer.readUInt32LE(offset).toString(16).padStart(8, "0"),
+    buffer.readUInt16LE(offset + 4).toString(16).padStart(4, "0"),
+    buffer.readUInt16LE(offset + 6).toString(16).padStart(4, "0"),
+    buffer.subarray(offset + 8, offset + 10).toString("hex"),
+    buffer.subarray(offset + 10, offset + 16).toString("hex"),
+  ].join("-");
+}
+
+function detectFilesystemAt(buffer, offset) {
+  if (!Number.isSafeInteger(offset) || offset < 0 || offset >= buffer.length) {
+    return null;
+  }
+  const has = (relative, size) => offset + relative + size <= buffer.length;
+  if (has(3, 8) && buffer.subarray(offset + 3, offset + 11).toString("ascii") === "NTFS    ") {
+    return "NTFS";
+  }
+  if (has(82, 8) && buffer.subarray(offset + 82, offset + 90).toString("ascii").startsWith("FAT32")) {
+    return "FAT32";
+  }
+  if (has(54, 8) && buffer.subarray(offset + 54, offset + 62).toString("ascii").startsWith("FAT")) {
+    return "FAT12/16";
+  }
+  if (has(1024 + 56, 2) && buffer.readUInt16LE(offset + 1024 + 56) === 0xef53) {
+    return "ext2/3/4";
+  }
+  if (has(0, 4) && buffer.subarray(offset, offset + 4).toString("ascii") === "XFSB") {
+    return "XFS";
+  }
+  return null;
+}
+
+function analyzeForensicContainer(buffer, totalSize, extension = "") {
+  const report = {
+    kind: "unknown",
+    format: "raw binary",
+    partitions: [],
+    filesystems: [],
+    indicators: [],
+    strings: [],
+  };
+  const ascii = extractAsciiStrings(buffer, 5, 4000);
+  const unicode = extractUnicodeStrings(buffer, 5, 2000);
+  const allStrings = dedupeStrings(ascii.concat(unicode));
+
+  if (buffer.length >= 4 && buffer.subarray(0, 4).toString("ascii") === "MDMP") {
+    report.kind = "memory";
+    report.format = "Windows minidump";
+  } else if (buffer.length >= 8 && buffer.subarray(0, 8).toString("ascii") === "PAGEDUMP") {
+    report.kind = "memory";
+    report.format = "Windows crash dump";
+  } else if (MEMORY_IMAGE_EXTENSIONS.includes(extension)) {
+    report.kind = "memory";
+    report.format = extension === ".vmem" ? "VMware memory image" : "raw memory image";
+  }
+
+  if (report.kind === "memory") {
+    report.indicators = dedupeStrings(
+      allStrings.filter(
+        (value) =>
+          /(?:\.exe\b|powershell|cmd\.exe|rundll32|regsvr32|https?:\/\/|HKEY_|\\Users\\|\\Windows\\|flag\{|ctf\{)/i.test(value),
+      ),
+    ).slice(0, 160);
+    report.strings = allStrings.filter((value) => /flag|ctf|password|secret|token|cookie|command|process|http/i.test(value)).slice(0, 160);
+    return report;
+  }
+
+  const hasMbr = buffer.length >= 512 && buffer[510] === 0x55 && buffer[511] === 0xaa;
+  const hasGpt = buffer.length >= 520 && buffer.subarray(512, 520).toString("ascii") === "EFI PART";
+  if (hasMbr || hasGpt || DISK_IMAGE_EXTENSIONS.includes(extension)) {
+    report.kind = "disk";
+    report.format = hasGpt ? "GPT disk image" : hasMbr ? "MBR disk image" : "raw disk image";
+  }
+
+  if (hasMbr) {
+    for (let index = 0; index < 4; index += 1) {
+      const offset = 446 + index * 16;
+      const type = buffer[offset + 4];
+      const startLba = buffer.readUInt32LE(offset + 8);
+      const sectors = buffer.readUInt32LE(offset + 12);
+      if (!type || !sectors) {
+        continue;
+      }
+      const byteOffset = startLba * 512;
+      const byteLength = sectors * 512;
+      const fileSystem = detectFilesystemAt(buffer, byteOffset);
+      const partition = {
+        source: "MBR",
+        index: index + 1,
+        type: `0x${type.toString(16).padStart(2, "0")}`,
+        name: "",
+        startLba,
+        endLba: startLba + sectors - 1,
+        byteOffset,
+        byteLength,
+        fileSystem,
+      };
+      report.partitions.push(partition);
+      if (fileSystem) {
+        report.filesystems.push(`partition ${partition.index}: ${fileSystem}`);
+      }
+    }
+  }
+
+  if (hasGpt && buffer.length >= 604) {
+    const entryLba = Number(buffer.readBigUInt64LE(584));
+    const entryCount = Math.min(buffer.readUInt32LE(592), 128);
+    const entrySize = buffer.readUInt32LE(596);
+    const tableOffset = entryLba * 512;
+    if (entrySize >= 128 && tableOffset < buffer.length) {
+      for (let index = 0; index < entryCount; index += 1) {
+        const offset = tableOffset + index * entrySize;
+        if (offset + 128 > buffer.length || buffer.subarray(offset, offset + 16).every((byte) => byte === 0)) {
+          continue;
+        }
+        const startLba = Number(buffer.readBigUInt64LE(offset + 32));
+        const endLba = Number(buffer.readBigUInt64LE(offset + 40));
+        const byteOffset = startLba * 512;
+        const byteLength = (endLba - startLba + 1) * 512;
+        const fileSystem = detectFilesystemAt(buffer, byteOffset);
+        const partition = {
+          source: "GPT",
+          index: index + 1,
+          type: formatGuid(buffer, offset),
+          name: buffer
+            .subarray(offset + 56, Math.min(offset + 128, offset + entrySize))
+            .toString("utf16le")
+            .replace(/\0+$/g, ""),
+          startLba,
+          endLba,
+          byteOffset,
+          byteLength,
+          fileSystem,
+        };
+        report.partitions.push(partition);
+        if (fileSystem) {
+          report.filesystems.push(`partition ${partition.index}: ${fileSystem}`);
+        }
+      }
+    }
+  }
+
+  if (report.kind === "disk" && !report.partitions.length) {
+    const fileSystem = detectFilesystemAt(buffer, 0);
+    if (fileSystem) {
+      report.filesystems.push(`whole image: ${fileSystem}`);
+    }
+  }
+  report.indicators = allStrings.filter((value) => /flag|ctf|password|secret|token|deleted|recover/i.test(value)).slice(0, 120);
+  report.strings = report.indicators;
+  report.totalSize = totalSize;
+  return report;
+}
+
+function buildForensicReport(fileName, report) {
+  const lines = [
+    "# FORENSIC CONTAINER REPORT",
+    `file: ${fileName}`,
+    `kind: ${report.kind}`,
+    `format: ${report.format}`,
+    `size: ${formatBytes(report.totalSize || 0)}`,
+    "",
+  ];
+  appendReportSection(
+    lines,
+    "partitions",
+    report.partitions.map(
+      (item) =>
+        `${item.source} #${item.index} type=${item.type} name=${item.name || "-"} start=${item.startLba} end=${item.endLba} offset=${formatOffset(
+          item.byteOffset,
+        )} size=${formatBytes(item.byteLength)} fs=${item.fileSystem || "unknown"}`,
+    ),
+    "(none)",
+  );
+  appendReportSection(lines, "file systems", report.filesystems, "(none detected in scan window)");
+  appendReportSection(lines, "memory/disk indicators", report.indicators, "(none)");
+  return `${lines.join("\n")}\n`;
+}
+
+function bigintGcd(left, right) {
+  let a = left < 0n ? -left : left;
+  let b = right < 0n ? -right : right;
+  while (b) {
+    [a, b] = [b, a % b];
+  }
+  return a;
+}
+
+function bigintExtendedGcd(a, b) {
+  let [oldR, r] = [a, b];
+  let [oldS, s] = [1n, 0n];
+  while (r) {
+    const quotient = oldR / r;
+    [oldR, r] = [r, oldR - quotient * r];
+    [oldS, s] = [s, oldS - quotient * s];
+  }
+  return { gcd: oldR, x: oldS };
+}
+
+function bigintModInverse(value, modulus) {
+  const result = bigintExtendedGcd(((value % modulus) + modulus) % modulus, modulus);
+  if (result.gcd !== 1n) {
+    return null;
+  }
+  return ((result.x % modulus) + modulus) % modulus;
+}
+
+function bigintModPow(base, exponent, modulus) {
+  if (modulus <= 0n || exponent < 0n) {
+    return null;
+  }
+  let result = 1n;
+  let value = ((base % modulus) + modulus) % modulus;
+  let power = exponent;
+  while (power) {
+    if (power & 1n) {
+      result = (result * value) % modulus;
+    }
+    value = (value * value) % modulus;
+    power >>= 1n;
+  }
+  return result;
+}
+
+function bigintSignedModPow(base, exponent, modulus) {
+  if (exponent >= 0n) {
+    return bigintModPow(base, exponent, modulus);
+  }
+  const inverse = bigintModInverse(base, modulus);
+  return inverse === null ? null : bigintModPow(inverse, -exponent, modulus);
+}
+
+function bigintNthRoot(value, degree) {
+  if (value < 0n || degree < 2) {
+    return null;
+  }
+  if (value < 2n) {
+    return value;
+  }
+  const exponent = BigInt(degree);
+  let low = 1n;
+  let high = 2n;
+  while (high ** exponent <= value) {
+    high *= 2n;
+  }
+  while (high - low > 1n) {
+    const middle = (low + high) >> 1n;
+    if (middle ** exponent <= value) {
+      low = middle;
+    } else {
+      high = middle;
+    }
+  }
+  return low;
+}
+
+function bigintToBuffer(value) {
+  if (value < 0n) {
+    return Buffer.alloc(0);
+  }
+  let hex = value.toString(16);
+  if (hex.length % 2) {
+    hex = `0${hex}`;
+  }
+  return Buffer.from(hex, "hex");
+}
+
+function parseRsaAssignments(text) {
+  const assignments = new Map();
+  const pattern = /\b([A-Za-z][A-Za-z0-9_]*)\s*[:=]\s*(0x[0-9a-fA-F]+|\d{1,10000})\b/g;
+  for (const match of String(text || "").matchAll(pattern)) {
+    const name = match[1].toLowerCase();
+    if (!/^(?:n|e|d|c|ct|ciphertext|p|q|phi|modulus)\d*$/.test(name)) {
+      continue;
+    }
+    try {
+      assignments.set(name, BigInt(match[2]));
+    } catch (_error) {
+      // Ignore malformed or excessively large numeric fields.
+    }
+  }
+  return assignments;
+}
+
+function factorRsaFromPrivateExponent(n, e, d) {
+  const k = e * d - 1n;
+  if (k <= 0n || (k & 1n)) {
+    return null;
+  }
+  let odd = k;
+  let twos = 0;
+  while ((odd & 1n) === 0n) {
+    odd >>= 1n;
+    twos += 1;
+  }
+  for (const base of [2n, 3n, 5n, 7n, 11n, 13n, 17n, 19n, 23n, 29n, 31n, 37n, 41n]) {
+    if (base >= n) {
+      continue;
+    }
+    let x = bigintModPow(base, odd, n);
+    if (x === 1n || x === n - 1n) {
+      continue;
+    }
+    for (let round = 1; round <= twos; round += 1) {
+      const y = (x * x) % n;
+      if (y === 1n) {
+        const factor = bigintGcd(x - 1n, n);
+        if (factor > 1n && factor < n) {
+          return [factor, n / factor];
+        }
+        break;
+      }
+      if (y === n - 1n) {
+        break;
+      }
+      x = y;
+    }
+  }
+  return null;
+}
+
+function renderRsaPlaintext(value) {
+  const buffer = bigintToBuffer(value);
+  const utf8 = buffer.toString("utf8").replace(/\0/g, "");
+  const printable = buffer.length ? (utf8.match(/[\x20-\x7e]/g) || []).length / utf8.length : 0;
+  return {
+    value,
+    hex: buffer.toString("hex"),
+    text: printable >= 0.65 || /(?:flag|ctf)\{/i.test(utf8) ? utf8 : "",
+    score: printable + (/(?:flag|ctf)\{/i.test(utf8) ? 10 : 0),
+  };
+}
+
+function analyzeRsaParameters(text) {
+  const parameters = parseRsaAssignments(text);
+  const findings = [];
+  const plaintexts = [];
+  const moduli = Array.from(parameters.entries()).filter(([name]) => /^(?:n|modulus)\d*$/.test(name));
+  const ciphertexts = Array.from(parameters.entries()).filter(([name]) => /^(?:c|ct|ciphertext)\d*$/.test(name));
+  const exponents = Array.from(parameters.entries()).filter(([name]) => /^e\d*$/.test(name));
+  const addPlaintext = (label, value) => {
+    const rendered = renderRsaPlaintext(value);
+    const key = `${rendered.hex}@@${label}`;
+    if (!plaintexts.some((item) => `${item.hex}@@${item.label}` === key)) {
+      plaintexts.push({ label, ...rendered });
+    }
+  };
+
+  for (const [nName, n] of moduli) {
+    const suffix = nName.match(/\d+$/)?.[0] || "";
+    const e = parameters.get(`e${suffix}`) || parameters.get("e");
+    const d = parameters.get(`d${suffix}`) || parameters.get("d");
+    let p = parameters.get(`p${suffix}`) || parameters.get("p");
+    let q = parameters.get(`q${suffix}`) || parameters.get("q");
+    let phi = parameters.get(`phi${suffix}`) || parameters.get("phi");
+    if ((!p || !q) && e && d) {
+      const factors = factorRsaFromPrivateExponent(n, e, d);
+      if (factors) {
+        [p, q] = factors;
+        findings.push(`${nName}: factored from leaked private exponent ${d === parameters.get("d") ? "d" : `d${suffix}`}`);
+      }
+    }
+    if ((!p || !q) && phi) {
+      const sum = n - phi + 1n;
+      const discriminant = sum * sum - 4n * n;
+      const root = discriminant >= 0n ? bigintNthRoot(discriminant, 2) : null;
+      if (root !== null && root * root === discriminant) {
+        p = (sum + root) / 2n;
+        q = (sum - root) / 2n;
+        findings.push(`${nName}: factored from phi`);
+      }
+    }
+    if (p && q && p * q === n) {
+      phi = (p - 1n) * (q - 1n);
+      findings.push(`${nName}: p=${p} q=${q}`);
+    }
+    for (const [cName, c] of ciphertexts) {
+      if (c >= n) {
+        continue;
+      }
+      if (d) {
+        addPlaintext(`${cName} with ${nName}/d${suffix}`, bigintModPow(c, d, n));
+      }
+      for (const [eName, candidateE] of exponents) {
+        if (!phi) {
+          continue;
+        }
+        const candidateD = bigintModInverse(candidateE, phi);
+        if (candidateD) {
+          addPlaintext(`${cName} with ${nName}/${eName}`, bigintModPow(c, candidateD, n));
+        }
+      }
+    }
+  }
+
+  for (let leftIndex = 0; leftIndex < moduli.length; leftIndex += 1) {
+    for (let rightIndex = leftIndex + 1; rightIndex < moduli.length; rightIndex += 1) {
+      const [leftName, leftN] = moduli[leftIndex];
+      const [rightName, rightN] = moduli[rightIndex];
+      const factor = bigintGcd(leftN, rightN);
+      if (factor > 1n && factor < leftN && factor < rightN) {
+        findings.push(`${leftName}/${rightName}: shared prime ${factor}`);
+        for (const [nName, n] of [
+          [leftName, leftN],
+          [rightName, rightN],
+        ]) {
+          const suffix = nName.match(/\d+$/)?.[0] || "";
+          const e = parameters.get(`e${suffix}`) || parameters.get("e");
+          const c = parameters.get(`c${suffix}`) || parameters.get(`ct${suffix}`) || parameters.get(`ciphertext${suffix}`);
+          const q = n / factor;
+          const phi = (factor - 1n) * (q - 1n);
+          const d = e ? bigintModInverse(e, phi) : null;
+          if (d && c !== undefined && c < n) {
+            addPlaintext(`c${suffix || ""} with ${nName} shared prime`, bigintModPow(c, d, n));
+          }
+        }
+      }
+    }
+  }
+
+  for (const [cName, c] of ciphertexts) {
+    for (const [eName, e] of exponents) {
+      if (e < 2n || e > 7n) {
+        continue;
+      }
+      const root = bigintNthRoot(c, Number(e));
+      if (root !== null && root ** e === c) {
+        findings.push(`${cName}/${eName}: exact low-exponent integer root`);
+        addPlaintext(`${cName} exact ${eName} root`, root);
+      }
+    }
+  }
+
+  for (const [nName, n] of moduli) {
+    const paired = exponents
+      .map(([eName, e]) => {
+        const suffix = eName.match(/\d+$/)?.[0] || "";
+        const c = parameters.get(`c${suffix}`) || parameters.get(`ct${suffix}`) || parameters.get(`ciphertext${suffix}`);
+        return c === undefined ? null : { eName, e, cName: `c${suffix}`, c };
+      })
+      .filter(Boolean);
+    for (let leftIndex = 0; leftIndex < paired.length; leftIndex += 1) {
+      for (let rightIndex = leftIndex + 1; rightIndex < paired.length; rightIndex += 1) {
+        const left = paired[leftIndex];
+        const right = paired[rightIndex];
+        const coefficients = bigintExtendedGcd(left.e, right.e);
+        if (coefficients.gcd !== 1n || left.c >= n || right.c >= n) {
+          continue;
+        }
+        const leftPower = bigintSignedModPow(left.c, coefficients.x, n);
+        const rightCoefficient = (1n - coefficients.x * left.e) / right.e;
+        const rightPower = bigintSignedModPow(right.c, rightCoefficient, n);
+        if (leftPower !== null && rightPower !== null) {
+          findings.push(`${nName}: common-modulus attack with ${left.eName}/${right.eName}`);
+          addPlaintext(`${left.cName}/${right.cName} common modulus`, (leftPower * rightPower) % n);
+        }
+      }
+    }
+  }
+
+  plaintexts.sort((left, right) => right.score - left.score);
+  return { parameters, findings: dedupeStrings(findings), plaintexts };
+}
+
+function buildRsaReport(fileName, report) {
+  const lines = [
+    "# BUILT-IN RSA PARAMETER REPORT",
+    `file: ${fileName}`,
+    `parameters: ${report.parameters.size}`,
+    "",
+  ];
+  appendReportSection(
+    lines,
+    "parameters",
+    Array.from(report.parameters.entries()).map(([name, value]) => `${name}=${value}`),
+    "(none)",
+  );
+  appendReportSection(lines, "findings", report.findings, "(no deterministic weakness solved)");
+  appendReportSection(
+    lines,
+    "recovered plaintexts",
+    report.plaintexts.slice(0, 40).flatMap((item) => [
+      `### ${item.label}`,
+      item.text || `(binary plaintext; hex follows)`,
+      `hex=${item.hex}`,
+      "",
+    ]),
+    "(none)",
+  );
+  return `${lines.join("\n")}\n`;
+}
+
 async function buildArtifactSignals(filePath) {
   const extension = path.extname(filePath).toLowerCase();
   const sampleLimit =
@@ -4202,6 +7680,8 @@ async function buildArtifactSignals(filePath) {
       ? MAX_TEXT_BYTES
       : [".wav", ".mp3", ".flac", ".ogg", ".m4a"].includes(extension)
         ? MAX_AUDIO_BYTES
+      : [".mp4", ".mov", ".m4v", ".3gp"].includes(extension)
+        ? MAX_VIDEO_BYTES
       : [".pcap", ".pcapng", ".cap"].includes(extension)
         ? MAX_TRAFFIC_BYTES
         : MAX_SAMPLE_BYTES;
@@ -4237,7 +7717,8 @@ async function buildArtifactSignals(filePath) {
 
   const encodedSegments = findEncodedSegments(searchableText);
   const decodedSegments = decodeInterestingSegments(encodedSegments);
-  const smartDecoded = artifact.family === "text" || artifact.family === "document" ? smartDecodeTextContent(buffer) : [];
+  const smartDecoded =
+    (artifact.family === "text" || artifact.family === "document") && !containsPlaceholderFlag(searchableText) ? smartDecodeTextContent(buffer) : [];
   const directFlags = findFlagCandidates(searchableText, artifact.name);
   const decodedFlags = decodedSegments.flatMap((item) => findFlagCandidates(item.value, `${artifact.name} (${item.type})`));
   const smartFlags = smartDecoded.flatMap((item) => findFlagCandidates(item.value, `${artifact.name} (${item.label})`));
@@ -4251,23 +7732,57 @@ async function buildArtifactSignals(filePath) {
   if ((artifact.family === "archive" && artifact.badge === "ZIP") || isOfficePackageExtension(extension) || artifact.badge === "APK") {
     embeddedPayloads = embeddedPayloads.filter((item) => item.id !== "zip");
   }
+  if (artifact.family === "network") {
+    // Packet payloads regularly contain coincidental file signatures. Protocol and
+    // HTTP-object extraction provide a more reliable boundary-aware route.
+    embeddedPayloads = [];
+  }
   artifact.embeddedPayloads = embeddedPayloads;
   const trafficSummary = artifact.family === "network" ? analyzeTrafficBuffer(buffer) : null;
   const pdfReport = artifact.badge === "PDF" ? analyzePdfBuffer(buffer) : null;
   let elfReport = null;
   let peReport = null;
   let apkReport = null;
+  let modelReport = null;
+  let forensicReport = null;
   let imageRaster = null;
   let qrPayload = null;
   let barcodePayload = null;
   let wavInfo = null;
   let audioLSB = [];
   let audioSignal = null;
+  let mp4Report = null;
+  let pngDimensionReport = null;
+  let signalReport = null;
+  let rsaReport = null;
+  const interleavedPayload = analyzeInterleavedPayload(buffer);
+  if ([".vcd", ".csv", ".asc", ".log", ".txt"].includes(extension)) {
+    try {
+      signalReport = analyzeSignalArtifact(buffer, extension);
+    } catch (_error) {
+      signalReport = null;
+    }
+  }
+  if (artifact.family === "text") {
+    try {
+      rsaReport = analyzeRsaParameters(searchableText);
+    } catch (_error) {
+      rsaReport = null;
+    }
+  }
+  if (artifact.family === "image" && artifact.badge === "PNG") {
+    try {
+      pngDimensionReport = analyzePngDimensionCandidates(buffer);
+    } catch (_error) {
+      pngDimensionReport = null;
+    }
+  }
   if (artifact.family === "image") {
     try {
       imageRaster = decodeImageRaster(buffer);
       qrPayload = imageRaster ? detectQrPayload(buffer) : null;
-      barcodePayload = imageRaster ? await detectBarcodePayload(filePath) : null;
+      barcodePayload =
+        imageRaster && ["PNG", "JPEG"].includes(artifact.badge) && !pngDimensionReport?.anomalous ? await detectBarcodePayload(filePath) : null;
     } catch (_error) {
       imageRaster = null;
       qrPayload = null;
@@ -4278,11 +7793,25 @@ async function buildArtifactSignals(filePath) {
     try {
       wavInfo = parseWavBuffer(buffer);
       audioLSB = wavInfo ? collectAudioLSBCandidates(buffer, wavInfo) : [];
-      audioSignal = wavInfo ? analyzeWavSignal(buffer, wavInfo, { maxSamples: MAX_AUDIO_PREVIEW_SAMPLES }) : null;
+      audioSignal = wavInfo ? analyzeWavSignal(buffer, wavInfo, { maxSamples: MAX_AUDIO_PREVIEW_SAMPLES, decodeAlphabet: false }) : null;
     } catch (_error) {
       wavInfo = null;
       audioLSB = [];
       audioSignal = null;
+    }
+  }
+  if (artifact.family === "video" && artifact.badge === "MP4") {
+    try {
+      mp4Report = analyzeMp4Buffer(buffer);
+      const lastBoxEnd = mp4Report?.topLevel.at(-1)?.end || 0;
+      if (lastBoxEnd) {
+        // Media payloads frequently contain coincidental magic bytes. Only treat data
+        // after the final valid top-level box as an appended file.
+        embeddedPayloads = embeddedPayloads.filter((item) => item.offset >= lastBoxEnd);
+        artifact.embeddedPayloads = embeddedPayloads;
+      }
+    } catch (_error) {
+      mp4Report = null;
     }
   }
   if (artifact.family === "binary") {
@@ -4293,6 +7822,10 @@ async function buildArtifactSignals(filePath) {
         peReport = parsePeBinary(buffer);
       } else if (artifact.badge === "APK" || extension === ".apk") {
         apkReport = parseApkPackage(filePath);
+      } else if (MODEL_EXTENSIONS.includes(extension)) {
+        modelReport = analyzeModelArtifact(buffer, extension);
+      } else if (artifact.badge === "DISK" || artifact.badge === "MEMORY") {
+        forensicReport = analyzeForensicContainer(buffer, stat.size, extension);
       }
     } catch (_error) {
       elfReport = null;
@@ -4318,6 +7851,17 @@ async function buildArtifactSignals(filePath) {
         id: "extract-png-lsb",
         label: "\u63d0\u53d6 PNG \u4f4e\u4f4d\u5e73\u9762",
       });
+      if (pngDimensionReport?.anomalous) {
+        const candidate = pngDimensionReport.candidates.find((item) => !item.original);
+        artifact.highlights.push(
+          `PNG IHDR \u5c3a\u5bf8\u7591\u4f3c\u88ab\u4fee\u6539\uff0cIDAT \u5019\u9009 ${candidate?.width || "?"} x ${candidate?.height || "?"}\u3002`,
+        );
+        artifact.keywords.push("png", "dimension", "repair", "misc");
+        artifact.actions.push({
+          id: "repair-png-dimensions",
+          label: "\u4fee\u590d PNG \u5bbd\u9ad8",
+        });
+      }
       const textChunks = extractPngTextChunks(buffer);
       if (textChunks.length) {
         artifact.highlights.push(`PNG \u5185\u90e8\u6587\u672c\u5757 ${textChunks.length} \u6761\u3002`);
@@ -4326,6 +7870,59 @@ async function buildArtifactSignals(filePath) {
       if (bitCandidates.length) {
         artifact.highlights.push(`PNG \u4f4e\u4f4d\u5e73\u9762\u547d\u4e2d ${bitCandidates.length} \u7ec4\u53ef\u8bfb\u7ebf\u7d22\u3002`);
       }
+    }
+    if (artifact.badge === "BMP") {
+      artifact.keywords.push("image", "bmp", "stego");
+      artifact.actions.push({
+        id: "extract-png-lsb",
+        label: "\u63d0\u53d6 BMP \u4f4e\u4f4d\u5e73\u9762",
+      });
+      const bitCandidates = collectPngLSBCandidates(buffer);
+      if (bitCandidates.length) {
+        artifact.highlights.push(`BMP \u4f4e\u4f4d\u5e73\u9762\u547d\u4e2d ${bitCandidates.length} \u7ec4\u53ef\u8bfb\u7ebf\u7d22\u3002`);
+      }
+    }
+    if (artifact.badge === "GIF") {
+      const gifExtensions = parseGifTextExtensions(buffer);
+      const descriptorStreams = collectGifDescriptorBitstreams(buffer);
+      artifact.keywords.push("image", "gif");
+      artifact.actions.push({
+        id: "extract-image-metadata",
+        label: "\u63d0\u53d6 GIF \u6269\u5c55\u6587\u672c",
+      });
+      if (gifExtensions.length) {
+        artifact.highlights.push(`GIF \u6ce8\u91ca/\u5e94\u7528/\u7eaf\u6587\u672c\u6269\u5c55 ${gifExtensions.length} \u4e2a\u3002`);
+        const gifFlags = gifExtensions.flatMap((item) =>
+          findFlagCandidates(`${item.identifier}\n${item.text}`, `${artifact.name} (GIF ${item.kind})`),
+        );
+        artifact.flagCandidates = dedupeStrings(
+          artifact.flagCandidates.map((item) => `${item.value}@@${item.source}`).concat(gifFlags.map((item) => `${item.value}@@${item.source}`)),
+        ).map((entry) => {
+          const [value, source] = entry.split("@@");
+          return { value, source };
+        });
+      }
+      if (descriptorStreams.length) {
+        artifact.highlights.push(`GIF \u56fe\u50cf\u63cf\u8ff0\u7b26\u4f4d\u6d41\u547d\u4e2d ${descriptorStreams.length} \u7ec4\u5019\u9009\u3002`);
+        artifact.keywords.push("stego", "descriptor bits");
+        const descriptorFlags = descriptorStreams.flatMap((item) => item.flags);
+        artifact.flagCandidates = dedupeStrings(
+          artifact.flagCandidates
+            .map((item) => `${item.value}@@${item.source}`)
+            .concat(descriptorFlags.map((item) => `${item.value}@@${item.source}`)),
+        ).map((entry) => {
+          const [value, source] = entry.split("@@");
+          return { value, source };
+        });
+      }
+    }
+    const ocrReadable =
+      artifact.badge !== "PNG" || hasValidPngHeaderCrc(buffer);
+    if (["PNG", "JPEG", "BMP"].includes(artifact.badge) && ocrReadable && (imageRaster || /contact-sheet/i.test(artifact.name))) {
+      artifact.actions.push({
+        id: "extract-image-ocr",
+        label: "\u8bc6\u522b\u56fe\u50cf\u6587\u5b57",
+      });
     }
     if (imageRaster) {
       artifact.actions.push({
@@ -4339,6 +7936,16 @@ async function buildArtifactSignals(filePath) {
       artifact.actions.push({
         id: "extract-appended-payloads",
         label: "\u63d0\u53d6\u9644\u52a0\u8d44\u6599",
+      });
+    }
+    if (interleavedPayload) {
+      artifact.highlights.push(
+        `\u68c0\u6d4b\u5230 ${interleavedPayload.streamCount} \u8def\u56fa\u5b9a\u5757\u4ea4\u7ec7 ${interleavedPayload.format.toUpperCase()} \u6570\u636e\uff0c\u5757\u5927\u5c0f ${interleavedPayload.blockSize} B\u3002`,
+      );
+      artifact.keywords.push("interleaved", "carved", interleavedPayload.format);
+      artifact.actions.push({
+        id: "recover-interleaved-files",
+        label: "\u6062\u590d\u4ea4\u7ec7\u6587\u4ef6",
       });
     }
     if (qrPayload) {
@@ -4494,6 +8101,38 @@ async function buildArtifactSignals(filePath) {
       artifact.highlights.push("\u53d1\u73b0 Cookie / Token / Authorization \u7c7b\u4fe1\u606f\u3002");
       artifact.keywords.push("cookie", "session");
     }
+    if (trafficSummary?.covertCandidates?.length) {
+      artifact.highlights.push(`流量重组/隐写命中 ${trafficSummary.covertCandidates.length} 个可读候选。`);
+      artifact.keywords.push("covert", "reassembly", "icmp", "dns");
+      const covertFlags = trafficSummary.covertCandidates.flatMap((item) =>
+        findFlagCandidates(item.text, `${artifact.name} (${item.label})`),
+      );
+      artifact.flagCandidates = dedupeStrings(
+        artifact.flagCandidates.map((item) => `${item.value}@@${item.source}`).concat(covertFlags.map((item) => `${item.value}@@${item.source}`)),
+      ).map((entry) => {
+        const [value, source] = entry.split("@@");
+        return { value, source };
+      });
+    }
+    if (trafficSummary?.usbHid?.keyboardText) {
+      artifact.highlights.push(`USB HID \u952e\u76d8\u8fd8\u539f ${trafficSummary.usbHid.keyEvents.length} \u4e2a\u6309\u952e\u4e8b\u4ef6\u3002`);
+      artifact.keywords.push("usb", "hid", "keyboard", "forensic");
+      const usbFlags = findFlagCandidates(trafficSummary.usbHid.keyboardText, `${artifact.name} (USB HID keyboard)`);
+      artifact.flagCandidates = dedupeStrings(
+        artifact.flagCandidates.map((item) => `${item.value}@@${item.source}`).concat(usbFlags.map((item) => `${item.value}@@${item.source}`)),
+      ).map((entry) => {
+        const [value, source] = entry.split("@@");
+        return { value, source };
+      });
+    }
+    if (trafficSummary?.usbHid?.mouseEvents?.length) {
+      artifact.highlights.push(`USB HID \u9f20\u6807\u8f68\u8ff9 ${trafficSummary.usbHid.mouseEvents.length} \u4e2a\u4e8b\u4ef6\u3002`);
+      artifact.keywords.push("usb", "hid", "mouse", "forensic");
+    }
+    if (trafficSummary?.usbHid?.controllerEvents?.length) {
+      artifact.highlights.push(`USB \u624b\u67c4\u8f93\u5165 ${trafficSummary.usbHid.controllerEvents.length} \u4e2a\u4e8b\u4ef6\uff0c\u5df2\u5bfc\u51fa\u6447\u6746\u8f68\u8ff9\u3002`);
+      artifact.keywords.push("usb", "controller", "gamepad", "forensic");
+    }
     if (lowered.includes("http/1.") || lowered.includes("get /") || lowered.includes("post /") || lowered.includes("host:")) {
       artifact.highlights.push("\u53d1\u73b0 HTTP \u8bf7\u6c42\u6216 Host \u7ebf\u7d22\u3002");
       artifact.keywords.push("http", "web");
@@ -4514,21 +8153,72 @@ async function buildArtifactSignals(filePath) {
       id: "extract-strings",
       label: "\u5bfc\u51fa strings",
     });
+  } else if (artifact.family === "video") {
+    artifact.summary = "\u89c6\u9891\u5bb9\u5668\u9644\u4ef6\uff0c\u9002\u5408\u68c0\u67e5 box \u7ed3\u6784\u3001track\u3001chunk offset\u3001free box \u548c\u5c3e\u90e8\u6570\u636e\u3002";
+    artifact.keywords.push("video", "mp4", "container", "forensic", "misc");
+    artifact.actions.push({
+      id: "extract-mp4-clues",
+      label: "\u5206\u6790\u5e76\u4fee\u590d MP4 \u7ed3\u6784",
+    });
+    if (mp4Report) {
+      artifact.highlights.push(`MP4 \u9876\u5c42 box ${mp4Report.topLevel.length} \u4e2a\uff0cchunk table ${mp4Report.chunkTables.length} \u4e2a\u3002`);
+      if (mp4Report.anomalies.length) {
+        artifact.highlights.push(`MP4 \u7ed3\u6784\u5f02\u5e38 ${mp4Report.anomalies.length} \u9879\uff0c\u53ef\u81ea\u52a8\u4fee\u590d\u3002`);
+        artifact.keywords.push("hidden track", "stco", "repair");
+      }
+    }
   } else if (artifact.family === "archive") {
     artifact.summary = "\u538b\u7f29\u5305\u7c7b\u9644\u4ef6\uff0c\u5e38\u89c1\u7ebf\u7d22\u662f\u5d4c\u5957\u6587\u4ef6\u3001\u8bc4\u8bba\u3001\u989d\u5916\u76ee\u5f55\u6216\u5bc6\u7801\u63d0\u793a\u3002";
-    artifact.keywords.push("archive", "zip");
+    artifact.keywords.push("archive", artifact.badge.toLowerCase());
     if (artifact.badge === "GZIP") {
       artifact.highlights.push("GZIP \u538b\u7f29\u6d41\uff0c\u53ef\u76f4\u63a5\u89e3\u538b\u7ee7\u7eed\u9012\u5f52\u5206\u6790\u3002");
+    } else if (artifact.badge === "TAR") {
+      artifact.highlights.push("TAR \u5f52\u6863\uff0c\u53ef\u76f4\u63a5\u89e3\u5305\u5e76\u9012\u5f52\u5206\u6790\u5185\u90e8\u6587\u4ef6\u3002");
     }
     artifact.suggestions.push("\u89e3\u538b\u540e\u68c0\u67e5\u9690\u85cf\u76ee\u5f55\u3001\u6ce8\u91ca\u3001\u5d4c\u5957\u6587\u4ef6\u548c\u4e0e flag \u76f8\u5173\u7684\u6587\u4ef6\u540d\u3002");
     artifact.actions.push({
       id: "extract-archive",
-      label: artifact.badge === "GZIP" ? "\u89e3\u538b GZIP" : "\u89e3\u5305 ZIP",
+      label: artifact.badge === "GZIP" ? "\u89e3\u538b GZIP" : artifact.badge === "TAR" ? "\u89e3\u5305 TAR" : "\u89e3\u5305 ZIP",
     });
   } else if (artifact.family === "binary") {
     artifact.summary = "\u4e8c\u8fdb\u5236\u7c7b\u9644\u4ef6\uff0c\u53ef\u4ece strings\u3001\u5bfc\u5165\u8868\u3001\u6821\u9a8c\u5b57\u7b26\u4e32\u548c\u63a7\u5236\u6d41\u5207\u5165\u3002";
     artifact.keywords.push("binary");
     const unicodeStrings = extractUnicodeStrings(buffer, 4, 120);
+    if (forensicReport) {
+      artifact.summary =
+        forensicReport.kind === "memory"
+          ? "\u5185\u5b58\u53d6\u8bc1\u9644\u4ef6\uff0c\u53ef\u5185\u7f6e\u63d0\u53d6\u8fdb\u7a0b\u3001\u547d\u4ee4\u3001URL\u3001\u6ce8\u518c\u8868\u8def\u5f84\u548c flag \u7ebf\u7d22\u3002"
+          : "\u78c1\u76d8\u53d6\u8bc1\u9644\u4ef6\uff0c\u53ef\u5185\u7f6e\u8bc6\u522b MBR/GPT\u3001\u5206\u533a\u548c\u5e38\u89c1\u6587\u4ef6\u7cfb\u7edf\u3002";
+      artifact.keywords.push("forensic", forensicReport.kind, "filesystem", "memory");
+      artifact.highlights.push(`${forensicReport.format}\uff1bpartition=${forensicReport.partitions.length}\uff1bfilesystem=${forensicReport.filesystems.length}\u3002`);
+      artifact.actions.push({
+        id: "extract-forensic-container",
+        label: "\u89e3\u6790\u53d6\u8bc1\u5bb9\u5668",
+      });
+      artifact.suggestions.push(
+        forensicReport.kind === "memory"
+          ? "\u5148\u68c0\u67e5\u5185\u7f6e\u62a5\u544a\u4e2d\u7684\u8fdb\u7a0b\u3001\u547d\u4ee4\u3001URL \u548c\u51ed\u636e\u7ebf\u7d22\u3002"
+          : "\u5148\u68c0\u67e5\u5206\u533a\u8868\u548c\u6587\u4ef6\u7cfb\u7edf\uff0c\u5c0f\u5206\u533a\u4f1a\u81ea\u52a8\u5bfc\u51fa\u5e76\u9012\u5f52\u5206\u6790\u3002",
+      );
+    }
+    if (modelReport) {
+      artifact.summary = "\u6a21\u578b/\u5e8f\u5217\u5316\u9644\u4ef6\uff0c\u5b89\u5168\u63d0\u53d6\u5143\u6570\u636e\u3001\u5f20\u91cf\u540d\u3001\u7b97\u5b50\u3001\u63d0\u793a\u8bcd\u548c\u5371\u9669\u53cd\u5e8f\u5217\u5316\u7ebf\u7d22\uff0c\u4e0d\u6267\u884c\u5185\u5bb9\u3002";
+      artifact.keywords.push("ai", "model", "model reverse", "prompt", "misc", extension.slice(1));
+      artifact.highlights.push(`${modelReport.format} \u6a21\u578b/\u5e8f\u5217\u5316\u9644\u4ef6\u3002`);
+      if (modelReport.tensors.length) {
+        artifact.highlights.push(`\u5f20\u91cf\u7d22\u5f15 ${modelReport.tensors.length} \u6761\u3002`);
+      }
+      if (modelReport.operators.length) {
+        artifact.highlights.push(`ONNX \u7b97\u5b50\uff1a${modelReport.operators.slice(0, 6).join(" / ")}`);
+      }
+      if (modelReport.dangerousPickleHints.length) {
+        artifact.highlights.push(`\u53d1\u73b0 ${modelReport.dangerousPickleHints.length} \u6761\u5371\u9669 Pickle \u53cd\u5e8f\u5217\u5316\u7ebf\u7d22\uff0c\u5df2\u7981\u6b62\u6267\u884c\u3002`);
+      }
+      artifact.actions.push({
+        id: "extract-model-clues",
+        label: "\u63d0\u53d6\u6a21\u578b\u7ebf\u7d22",
+      });
+    }
     if (artifact.badge === "APK" || extension === ".apk") {
       artifact.summary = "\u5b89\u5353 APK \u5305\uff0c\u53ef\u4ece Manifest\u3001DEX\u3001\u6743\u9650\u3001native lib \u548c\u5185\u5d4c\u8d44\u6e90\u5207\u5165\u3002";
       artifact.keywords.push("apk", "android", "mobile");
@@ -4561,10 +8251,53 @@ async function buildArtifactSignals(filePath) {
       });
       artifact.suggestions.push("\u5148\u770b AndroidManifest\u3001\u6743\u9650\u3001DEX \u5b57\u7b26\u4e32\u3001native lib \u548c assets \u8d44\u6e90\u3002");
     } else if (artifact.badge === "ELF" || extension === ".elf" || extension === ".so") {
-      artifact.highlights.push("ELF \u4e8c\u8fdb\u5236\uff0c\u504f\u5411\u9006\u5411\u6216 pwn \u6d41\u7a0b\u3002");
       artifact.keywords.push("elf", "reverse");
       if (elfReport) {
         artifact.highlights.push(`${elfReport.format} ${elfReport.machine} ${elfReport.type} entry ${formatHex(elfReport.entry)}`);
+        if (elfReport.pwnSurface) {
+          const checksec = elfReport.pwnSurface.checksec;
+          artifact.highlights.push(
+            `checksec-lite: RELRO=${checksec.relro} NX=${checksec.nx === null ? "?" : checksec.nx ? "on" : "off"} PIE=${
+              checksec.pie ? "on" : checksec.sharedObject ? "so" : "off"
+            } Canary=${checksec.canary ? "yes" : "no"}`,
+          );
+          artifact.keywords.push("pwn", "checksec");
+          if (elfReport.pwnSurface.dangerousFunctions.length) {
+            artifact.highlights.push(`Pwn \u98ce\u9669\u51fd\u6570\uff1a${elfReport.pwnSurface.dangerousFunctions.slice(0, 5).map((item) => item.name).join(" / ")}`);
+            artifact.keywords.push("overflow", "format string", "libc");
+          }
+          if (elfReport.pwnSurface.hypotheses.length) {
+            artifact.highlights.push(`Pwn \u4f18\u5148\u8def\u5f84\uff1a${elfReport.pwnSurface.hypotheses.slice(0, 3).map((item) => item.title).join(" / ")}`);
+          }
+          if (elfReport.pwnSurface.ioProfile.mode !== "unknown") {
+            artifact.highlights.push(
+              `Pwn I/O\uff1a${elfReport.pwnSurface.ioProfile.mode}\uff1binput=${elfReport.pwnSurface.ioProfile.input.slice(0, 4).join("/") || "?"}\uff1bconstraint=${
+                elfReport.pwnSurface.ioProfile.constraints.slice(0, 4).join("/") || "none"
+              }`,
+            );
+          }
+          if (elfReport.pwnSurface.memorySurface.staging.length || elfReport.pwnSurface.memorySurface.rwx.length) {
+            artifact.highlights.push(
+              `Pwn \u5185\u5b58\u533a\uff1astaging=${elfReport.pwnSurface.memorySurface.staging.map((item) => item.name).join("/") || "none"}\uff1bRWX=${
+                elfReport.pwnSurface.memorySurface.rwx.map((item) => item.name).join("/") || "none"
+              }`,
+            );
+          }
+          if (elfReport.pwnSurface.gadgetCounts.length) {
+            artifact.keywords.push("rop", "gadget");
+            const capabilities = elfReport.pwnSurface.gadgetCapabilities;
+            artifact.highlights.push(
+              `ROP \u80fd\u529b\uff1aargs=${capabilities.argumentControl.join("/") || "none"}\uff1bsyscall=${capabilities.syscall ? "yes" : "no"}\uff1bpivot=${
+                capabilities.stackPivot ? "yes" : "no"
+              }`,
+            );
+          }
+        }
+        artifact.highlights.push(
+          `ELF \u89d2\u8272\uff1a${elfReport.role}\uff1bbuild-id=${elfReport.buildId ? elfReport.buildId.slice(0, 16) : "unknown"}\uff1bGLIBC=${
+            elfReport.glibcVersions.slice(-3).join("/") || "unknown"
+          }`,
+        );
         if (elfReport.interpreter) {
           artifact.highlights.push(`\u52a8\u6001\u88c5\u8f7d\u5668\uff1a${elfReport.interpreter}`);
         }
@@ -4575,6 +8308,25 @@ async function buildArtifactSignals(filePath) {
           const symbolCount = elfReport.symbolTables.reduce((sum, table) => sum + table.count, 0);
           artifact.highlights.push(`ELF \u7b26\u53f7 ${symbolCount} \u4e2a\uff0c\u91cd\u5b9a\u4f4d\u6bb5 ${elfReport.relocations.length} \u4e2a\u3002`);
         }
+        if (elfReport.seccompPolicies.length) {
+          artifact.highlights.push(
+            `seccomp BPF \u5019\u9009 ${elfReport.seccompPolicies.length} \u7ec4\uff1bsyscall=${dedupeStrings(
+              elfReport.seccompPolicies.flatMap((item) => item.syscalls),
+            )
+              .slice(0, 8)
+              .join("/")}`,
+          );
+          artifact.keywords.push("seccomp", "sandbox", "bpf", "syscall");
+        }
+        if (elfReport.coreReport) {
+          const registerEntries = Object.entries(elfReport.coreReport.registers);
+          artifact.highlights.push(
+            `Core dump\uff1anotes=${elfReport.coreReport.notes.length}\uff1bsignal=${elfReport.coreReport.signals.join("/") || "?"}\uff1b${
+              registerEntries.length ? registerEntries.slice(0, 3).map(([name, value]) => `${name}=${formatHex(value)}`).join(" ") : "registers=?"
+            }`,
+          );
+          artifact.keywords.push("core dump", "crash", "registers", "forensic");
+        }
       }
       artifact.actions.push({
         id: "extract-binary-clues",
@@ -4584,7 +8336,7 @@ async function buildArtifactSignals(filePath) {
         id: "extract-strings",
         label: "\u5bfc\u51fa strings",
       });
-      artifact.suggestions.push("\u5148\u770b ELF \u5934\u3001.interp\u3001.dynamic\u3001\u4f9d\u8d56 so \u548c\u53ef\u7591 section\u3002");
+      artifact.suggestions.push("\u5148\u770b checksec\u3001.interp/.dynamic\u3001libc \u4f9d\u8d56\u3001\u98ce\u9669\u5bfc\u5165\u51fd\u6570\u548c\u77ed ROP gadget\u3002");
     } else if (artifact.badge === "PE" || [".exe", ".dll"].includes(extension)) {
       artifact.highlights.push("PE \u4e8c\u8fdb\u5236\uff0c\u53ef\u4ece section\u3001imports \u548c\u5b50\u7cfb\u7edf\u5207\u5165\u3002");
       artifact.keywords.push("pe", "windows", "reverse");
@@ -4632,6 +8384,52 @@ async function buildArtifactSignals(filePath) {
   } else if (artifact.family === "text") {
     artifact.summary = "\u6587\u672c\u7c7b\u9644\u4ef6\uff0c\u4f18\u5148\u68c0\u67e5 flag \u6837\u5f0f\u3001base64\u3001hex\u3001URL \u548c\u9690\u85cf\u63d0\u793a\u3002";
     artifact.keywords.push("text");
+    if (rsaReport?.parameters.size >= 3 && Array.from(rsaReport.parameters.keys()).some((name) => /^(?:c|ct|ciphertext)\d*$/.test(name))) {
+      artifact.summary = "\u5bc6\u7801\u53c2\u6570\u6587\u672c\uff0c\u53ef\u5185\u7f6e\u5c1d\u8bd5 RSA \u79c1\u94a5\u6cc4\u9732\u3001\u5df2\u77e5\u56e0\u5b50/\u6b27\u62c9\u51fd\u6570\u548c\u4f4e\u6307\u6570\u6839\u653b\u51fb\u3002";
+      artifact.keywords.push("crypto", "rsa", "modulus", "decrypt");
+      artifact.highlights.push(`RSA \u53c2\u6570 ${rsaReport.parameters.size} \u4e2a\uff0c\u786e\u5b9a\u6027\u7ebf\u7d22 ${rsaReport.findings.length} \u6761\u3002`);
+      artifact.actions.push({
+        id: "solve-rsa-parameters",
+        label: "\u6c42\u89e3 RSA \u53c2\u6570",
+      });
+      artifact.suggestions.push("\u5185\u7f6e RSA \u5de5\u4f5c\u53f0\u4f1a\u5c1d\u8bd5\u79c1\u94a5\u6307\u6570\u53cd\u5206\u89e3\u3001\u5df2\u77e5 p/q/phi \u548c\u4f4e\u6307\u6570\u6574\u6570\u6839\u3002");
+    }
+    if (signalReport) {
+      artifact.summary =
+        signalReport.kind === "vcd"
+          ? "VCD 逻辑分析仪波形，可自动尝试 SPI、UART、I2C、常见位序和轻量编码变换。"
+          : signalReport.kind === "can-log"
+            ? "CAN/candump/ASC 报文日志，可按仲裁 ID 聚合载荷并自动检查编码层。"
+            : "二值逻辑 CSV，可自动提取列位流并尝试常见门电路组合。";
+      artifact.keywords.push(
+        "hardware",
+        "logic",
+        signalReport.kind,
+        signalReport.kind === "vcd" ? "spi" : signalReport.kind === "can-log" ? "can" : "csv",
+      );
+      artifact.highlights.push(
+        signalReport.kind === "vcd"
+          ? `VCD 信号 ${signalReport.signalCount} 个；SPI ${signalReport.samples.length} 组、UART ${signalReport.uartAttempts.length} 组、I2C ${signalReport.i2cAttempts.length} 组候选。`
+          : signalReport.kind === "can-log"
+            ? `CAN 报文 ${signalReport.frameCount} 帧，仲裁 ID ${signalReport.ids.length} 个。`
+            : `逻辑 CSV ${signalReport.rowCount} 行，已尝试 ${signalReport.formulaCount} 个位流/门电路表达式。`,
+      );
+      if (signalReport.candidates.length) {
+        artifact.highlights.push(`信号分析命中 ${signalReport.candidates.length} 个可读候选。`);
+      }
+      const signalFlags = signalReport.candidates.flatMap((item) => findFlagCandidates(item.value, `${artifact.name} (${item.label})`));
+      artifact.flagCandidates = dedupeStrings(
+        artifact.flagCandidates.map((item) => `${item.value}@@${item.source}`).concat(signalFlags.map((item) => `${item.value}@@${item.source}`)),
+      ).map((entry) => {
+        const [value, source] = entry.split("@@");
+        return { value, source };
+      });
+      artifact.actions.push({
+        id: "analyze-signal-data",
+        label: "解析逻辑信号",
+      });
+      artifact.suggestions.push("优先核对时钟边沿、数据线、位序和门电路表达式；自动结果会保留来源公式。");
+    }
     if (encodedSegments.base64.length) {
       artifact.highlights.push(`\u53d1\u73b0 ${encodedSegments.base64.length} \u6bb5\u53ef\u7591 Base64 \u5185\u5bb9\u3002`);
       artifact.keywords.push("base64", "encoding");
@@ -4649,7 +8447,32 @@ async function buildArtifactSignals(filePath) {
     }
     if (
       smartDecoded.some((item) =>
-        ["xor", "rot13", "caesar", "base32", "bitstream", "unicode-tags", "bacon", "brainfuck", "rot47", "atbash", "decimal-bytes", "hex-bytes"].includes(item.type),
+        [
+          "xor",
+          "rot13",
+          "caesar",
+          "base32",
+          "bitstream",
+          "unicode-tags",
+          "bacon",
+          "brainfuck",
+          "ook",
+          "morse",
+          "polybius",
+          "a1z26",
+          "nato",
+          "dna-2bit",
+          "base91",
+          "z85",
+          "quoted-printable",
+          "uuencode",
+          "rot47",
+          "atbash",
+          "rail-fence",
+          "affine",
+          "decimal-bytes",
+          "hex-bytes",
+        ].includes(item.type),
       )
     ) {
       artifact.highlights.push("\u68c0\u6d4b\u5230\u53ef\u8fdb\u4e00\u6b65\u89e3\u7801\u7684\u6587\u672c\u9690\u5199\u6216\u7ecf\u5178\u7f16\u7801\u7ebf\u7d22\u3002");
@@ -4660,7 +8483,7 @@ async function buildArtifactSignals(filePath) {
         });
       }
     }
-    artifact.suggestions.push("\u5bf9\u6587\u672c\u4f18\u5148\u505a base/hex/XOR/ROT\u3001\u96f6\u5bbd/\u7a7a\u767d\u9690\u5199\u548c\u5206\u5757\u91cd\u7ec4\u3002");
+    artifact.suggestions.push("\u5bf9\u6587\u672c\u4f18\u5148\u505a base/hex/XOR/ROT\u3001\u6570\u5b57\u5750\u6807\u3001Morse/NATO/DNA\u3001\u96f6\u5bbd/\u7a7a\u767d\u9690\u5199\u548c\u5206\u5757\u91cd\u7ec4\u3002");
   } else if (artifact.family === "document") {
     artifact.summary = "\u6587\u6863\u7c7b\u9644\u4ef6\uff0c\u9700\u8981\u68c0\u67e5\u5185\u5d4c\u6587\u672c\u3001\u5173\u952e\u5b57\u3001\u9644\u4ef6\u548c\u5143\u6570\u636e\u3002";
     if (artifact.badge === "PDF" && pdfReport) {
@@ -4773,7 +8596,7 @@ function classifyChallenge(payload, artifacts) {
 
   for (const artifact of artifacts) {
     if (artifact.family === "network") {
-      scores.forensic += 3;
+      scores.forensic += 12;
       scores.web += 1;
     }
     if (artifact.family === "audio") {
@@ -4784,6 +8607,10 @@ function classifyChallenge(payload, artifacts) {
       scores.misc += 2;
       scores.forensic += 1;
     }
+    if (artifact.family === "video") {
+      scores.misc += 4;
+      scores.forensic += 1;
+    }
     if (artifact.family === "archive") {
       scores.forensic += 1;
       scores.misc += 1;
@@ -4791,6 +8618,9 @@ function classifyChallenge(payload, artifacts) {
     if (artifact.family === "binary") {
       scores.reverse += 2;
       scores.pwn += artifact.badge === "ELF" ? 1 : 0;
+      if (artifact.keywords.some((keyword) => ["pwn", "checksec", "overflow", "format string", "rop", "gadget"].includes(keyword))) {
+        scores.pwn += 3;
+      }
     }
     if (artifact.family === "text" && artifact.keywords.includes("base64")) {
       scores.crypto += 1;
@@ -4889,14 +8719,35 @@ function scoreFlagCandidate(candidate) {
   if (KNOWN_FLAG_PREFIX.test(value)) {
     score += 0.22;
   }
+  if (/^[A-Z][A-Z0-9_]{1,15}\{/.test(value)) {
+    score += 0.12;
+  }
   if (/^(?:flag|ctf|picoctf)\{/i.test(value)) {
     score += 0.08;
+  }
+  if (/^(?:flag|ctf|key|answer)[-_:]/i.test(value)) {
+    score += 0.18;
   }
   if (/metadata|strings|lsb|png|jpeg|http|dns|ciphey|zsteg|binwalk|text|payload/i.test(source)) {
     score += 0.04;
   }
+  if (/gif|descriptor|frame|mp4|track|chunk/i.test(source)) {
+    score += 0.04;
+  }
+  if (/rsa-report/i.test(source)) {
+    score += 0.12;
+  }
+  if (/(?:fake|dummy|placeholder|example|sample|test)[-_ ]?flag|flag[-_ ]?(?:fake|dummy|placeholder|example|sample|test)/i.test(value)) {
+    score -= 0.48;
+  }
+  if (/^NPF_\{[0-9a-f-]{32,40}\}$/i.test(value) || /^[a-z0-9_]{2,16}\{[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}\}$/i.test(value)) {
+    score -= 0.42;
+  }
   if (value.length > 180 || /\s{2,}/.test(value)) {
     score -= 0.18;
+  }
+  if (isLowQualityFlagShape(value)) {
+    score -= 0.5;
   }
 
   return Math.max(0.25, Math.min(0.98, score));
@@ -4954,10 +8805,10 @@ function buildFailureGuide(error, action, artifact) {
     guide.title = "压缩包未能自动解包";
     guide.steps = [
       "确认压缩包是否加密；如果题目给过密码，把密码写入备注后重新分析。",
-      "检查是否是 RAR/7Z/TAR 等当前内置解包不支持的格式；这类文件可选使用 7-Zip 或 binwalk 复核。",
+      "检查是否是 RAR/7Z 等当前内置解包不支持的格式；这类文件可选使用 7-Zip 或 binwalk 复核。",
       "如果是嵌套压缩包，先确认第一层是否成功提取，再从生成文件继续分析。",
     ];
-    guide.fallback = "内置解包覆盖 ZIP/GZIP；复杂压缩格式建议用 7-Zip、binwalk 或手动指定密码处理。";
+    guide.fallback = "内置解包覆盖 ZIP/GZIP/TAR/TGZ；复杂压缩格式建议用 7-Zip、binwalk 或手动指定密码处理。";
   } else if (actionId === "decode-encoded-text") {
     guide.title = "文本没有可直接还原的编码层";
     guide.steps = [
@@ -4966,6 +8817,14 @@ function buildFailureGuide(error, action, artifact) {
       "如果像古典密码或多层弱加密，安装 Ciphey 后重跑可获得更深的自动尝试。",
     ];
     guide.fallback = "内置 ciphey-lite 已覆盖常见编码、文本隐写和单字节 XOR；未知密钥类密码仍需要题目线索。";
+  } else if (actionId === "solve-rsa-parameters") {
+    guide.title = "RSA \u53c2\u6570\u672a\u547d\u4e2d\u786e\u5b9a\u6027\u5f31\u70b9";
+    guide.steps = [
+      "\u786e\u8ba4\u9898\u9762\u4e2d\u7684 n/e/c/d/p/q/phi \u5df2\u4fdd\u7559\u4e3a name=value \u6216 name: value \u683c\u5f0f\u3002",
+      "\u5982\u679c\u6709\u591a\u7ec4\u6a21\u6570\u6216\u5bc6\u6587\uff0c\u7528 n1/e1/c1\u3001n2/e2/c2 \u533a\u5206\uff0c\u4fbf\u4e8e\u68c0\u67e5\u5171\u4eab\u7d20\u56e0\u5b50\u3002",
+      "\u5185\u7f6e\u5de5\u4f5c\u53f0\u5df2\u5c1d\u8bd5\u5df2\u77e5 p/q/phi/d\u3001\u6cc4\u9732\u79c1\u94a5\u6307\u6570\u53cd\u5206\u89e3\u3001\u5171\u4eab\u7d20\u56e0\u5b50\u548c e<=7 \u7684\u6574\u6570\u6839\u3002",
+    ];
+    guide.fallback = "\u5982\u679c\u4ecd\u672a\u547d\u4e2d\uff0c\u901a\u5e38\u9700\u8981\u9898\u76ee\u7279\u5b9a\u7684 padding oracle\u3001Coppersmith\u3001Wiener\u3001\u5171\u6a21\u653b\u51fb\u6216\u4ea4\u4e92\u5f0f\u670d\u52a1\u7ebf\u7d22\u3002";
   } else if (actionId === "extract-png-lsb") {
     guide.title = "PNG 低位平面未命中";
     guide.steps = [
@@ -5084,7 +8943,7 @@ function buildSolverResult(artifacts, flagCandidates, pipelineLog, pipelineError
   const installedToolCount = (toolStatus?.installed || []).length;
   const nextActions = [];
 
-  if (primaryFlag) {
+  if (primaryFlag && primaryFlag.score >= 0.72) {
     nextActions.push("验证候选 flag 的来源文件和格式，确认是否可直接提交。");
     if (rankedCandidates.length > 1) {
       nextActions.push("存在多个候选值时，优先选择格式更完整、来源更直接的结果。");
@@ -5121,8 +8980,8 @@ function buildSolverResult(artifacts, flagCandidates, pipelineLog, pipelineError
         ? `已执行 ${pipelineLog.length} 个本地动作并递归扫描 ${artifacts.length} 个文件，但没有抽取到可提交 flag。`
         : "当前输入不足或缺少必要工具，暂时无法继续自动求解。",
     primaryFlag: null,
-    candidates: [],
-    confidence: status === "partial" ? 0.46 : 0.28,
+    candidates: rankedCandidates,
+    confidence: primaryFlag ? primaryFlag.score : status === "partial" ? 0.46 : 0.28,
     actionsRun: pipelineLog.length,
     artifactCount: artifacts.length,
     missingTools,
@@ -5244,6 +9103,45 @@ function extractAppendedPayloads(filePath, outputRoot) {
 
   return {
     message: "\u5df2\u63d0\u53d6\u9644\u52a0\u8d44\u6599\u5e76\u7ee7\u7eed\u7eb3\u5165\u5206\u6790\u3002",
+    createdFiles,
+  };
+}
+
+function recoverInterleavedFiles(filePath, outputRoot) {
+  const buffer = fs.readFileSync(filePath);
+  const report = analyzeInterleavedPayload(buffer);
+  if (!report) {
+    throw new Error("\u6ca1\u6709\u8bc6\u522b\u5230\u56fa\u5b9a\u5757\u8f6e\u8f6c\u4ea4\u7ec7\u7684\u591a\u6587\u4ef6\u6570\u636e\u3002");
+  }
+  const chunks = Array.from({ length: report.streamCount }, () => []);
+  for (let offset = 0, index = 0; offset < buffer.length; offset += report.blockSize, index += 1) {
+    chunks[index % report.streamCount].push(buffer.subarray(offset, Math.min(buffer.length, offset + report.blockSize)));
+  }
+  const recovered = chunks.map((parts) => trimRecoveredPayload(Buffer.concat(parts), report.format));
+  const extension = EMBEDDED_SIGNATURES.find((item) => item.id === report.format)?.ext || ".bin";
+  const baseName = sanitizeSegment(path.parse(filePath).name);
+  const createdFiles = recovered.map((content, index) =>
+    writeGeneratedFile(outputRoot, `${baseName}-interleaved-${index + 1}${extension}`, content),
+  );
+  if (report.format === "png") {
+    const contactSheet = buildPngContactSheet(recovered);
+    if (contactSheet) {
+      createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-interleaved-contact-sheet.png`, contactSheet));
+    }
+  }
+  const summary = [
+    "# INTERLEAVED FILE RECOVERY",
+    `file: ${path.basename(filePath)}`,
+    `format: ${report.format}`,
+    `block-size: ${report.blockSize}`,
+    `streams: ${report.streamCount}`,
+    "",
+    ...createdFiles.map((item) => path.basename(item)),
+    "",
+  ];
+  createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-interleaved-report.txt`, summary.join("\n")));
+  return {
+    message: `\u5df2\u6309 ${report.blockSize} B \u56fa\u5b9a\u5757\u8f6e\u8f6c\u6062\u590d ${report.streamCount} \u8def ${report.format.toUpperCase()} \u6587\u4ef6\u3002`,
     createdFiles,
   };
 }
@@ -5388,15 +9286,127 @@ function repairPseudoEncryptedZip(buffer) {
   return changed ? repaired : null;
 }
 
+function readTarString(buffer, start, length) {
+  return buffer.subarray(start, start + length).toString("utf8").replace(/\0.*$/s, "").trim();
+}
+
+function readTarNumber(buffer, start, length) {
+  const field = buffer.subarray(start, start + length);
+  if (field.length && field[0] & 0x80) {
+    let value = BigInt(field[0] & 0x7f);
+    for (let index = 1; index < field.length; index += 1) {
+      value = (value << 8n) | BigInt(field[index]);
+    }
+    return Number(value);
+  }
+  const text = field.toString("ascii").replace(/\0/g, "").trim();
+  return text ? parseInt(text, 8) : 0;
+}
+
+function parseTarPaxPath(data) {
+  const text = data.toString("utf8");
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(/^\d+\s+path=(.+)$/);
+    if (match) {
+      return match[1].trim();
+    }
+  }
+  return "";
+}
+
+function parseTarEntries(buffer) {
+  const entries = [];
+  let offset = 0;
+  let pendingLongName = "";
+  let pendingPaxPath = "";
+
+  while (offset + 512 <= buffer.length && entries.length < MAX_ARCHIVE_ENTRIES * 2) {
+    const header = buffer.subarray(offset, offset + 512);
+    if (header.every((byte) => byte === 0)) {
+      break;
+    }
+
+    const size = readTarNumber(header, 124, 12);
+    const type = readTarString(header, 156, 1) || "0";
+    const name = readTarString(header, 0, 100);
+    const prefix = readTarString(header, 345, 155);
+    const headerName = prefix ? `${prefix}/${name}` : name;
+    const dataStart = offset + 512;
+    const dataEnd = dataStart + size;
+    if (!Number.isFinite(size) || size < 0 || dataEnd > buffer.length) {
+      break;
+    }
+
+    const data = buffer.subarray(dataStart, dataEnd);
+    if (type === "L") {
+      pendingLongName = data.toString("utf8").replace(/\0.*$/s, "").trim();
+    } else if (type === "x") {
+      pendingPaxPath = parseTarPaxPath(data);
+    } else {
+      const entryName = pendingPaxPath || pendingLongName || headerName;
+      entries.push({
+        name: entryName,
+        type,
+        size,
+        mtime: readTarNumber(header, 136, 12),
+        data,
+        isFile: ["0", "\0", "7"].includes(type),
+        isDirectory: type === "5",
+      });
+      pendingLongName = "";
+      pendingPaxPath = "";
+    }
+
+    offset = dataStart + Math.ceil(size / 512) * 512;
+  }
+
+  return entries;
+}
+
+function extractTarEntries(buffer, outputRoot) {
+  ensureOutputRoot(outputRoot);
+  const entries = parseTarEntries(buffer);
+  let totalBytes = 0;
+  const createdFiles = [];
+
+  for (const entry of entries.filter((item) => item.isFile).slice(0, MAX_ARCHIVE_ENTRIES)) {
+    totalBytes += entry.size;
+    if (totalBytes > MAX_ARCHIVE_TOTAL_BYTES) {
+      break;
+    }
+    const relativePath = safeArchivePath(entry.name);
+    if (!relativePath) {
+      continue;
+    }
+    const finalPath = path.join(outputRoot, relativePath);
+    ensureOutputRoot(path.dirname(finalPath));
+    fs.writeFileSync(finalPath, entry.data);
+    createdFiles.push(finalPath);
+  }
+
+  return { entries, createdFiles };
+}
+
+function buildTarClueReport(entries, filePath) {
+  const lines = ["# TAR CLUES", `file: ${path.basename(filePath)}`, "", "## entries"];
+  entries.slice(0, MAX_ARCHIVE_ENTRIES).forEach((entry) => {
+    const kind = entry.isDirectory ? "directory" : entry.isFile ? "file" : `type-${entry.type}`;
+    lines.push(`- ${entry.name} ${kind} size=${entry.size} mtime=${entry.mtime || 0}`);
+  });
+  return `${lines.join("\n")}\n`;
+}
+
 function extractArchive(filePath, outputRoot, options = {}) {
-  const sample = readSample(filePath, 16).buffer;
-  if (detectMagic(sample) === "gzip" || path.extname(filePath).toLowerCase() === ".gz") {
+  const sample = readSample(filePath, 512).buffer;
+  const archiveMagic = detectMagic(sample);
+  const extension = path.extname(filePath).toLowerCase();
+  if (archiveMagic === "gzip" || [".gz", ".tgz"].includes(extension)) {
     const buffer = fs.readFileSync(filePath);
     const inflated = zlib.gunzipSync(buffer, { maxOutputLength: MAX_ARCHIVE_TOTAL_BYTES });
     const parsed = path.parse(filePath);
     let generatedName = sanitizeSegment(parsed.name) || `${sanitizeSegment(parsed.base)}-inflated`;
     if (!path.extname(generatedName)) {
-      generatedName = `${generatedName}.bin`;
+      generatedName = `${generatedName}${extension === ".tgz" || detectMagic(inflated.subarray(0, 512)) === "tar" ? ".tar" : ".bin"}`;
     }
     const outPath = writeGeneratedFile(outputRoot, generatedName, inflated);
     return {
@@ -5406,6 +9416,18 @@ function extractArchive(filePath, outputRoot, options = {}) {
   }
 
   const zipBuffer = fs.readFileSync(filePath);
+  if (archiveMagic === "tar" || extension === ".tar") {
+    const { entries, createdFiles } = extractTarEntries(zipBuffer, outputRoot);
+    if (!createdFiles.length) {
+      throw new Error("\u6ca1\u6709\u4ece TAR \u4e2d\u63d0\u53d6\u5230\u53ef\u7528\u6587\u4ef6\u3002");
+    }
+    const report = writeGeneratedFile(outputRoot, `${sanitizeSegment(path.parse(filePath).name)}-tar-clues.txt`, buildTarClueReport(entries, filePath));
+    return {
+      message: "\u5df2\u89e3\u5305 TAR \u5e76\u5c06\u5185\u5bb9\u7eb3\u5165\u7ee7\u7eed\u5206\u6790\u3002",
+      createdFiles: [report, ...createdFiles],
+    };
+  }
+
   const actionOptions = buildActionOptions(options, filePath);
   let zip = new AdmZip(zipBuffer);
   let createdFiles = [];
@@ -5470,8 +9492,91 @@ function extractBinaryClues(filePath, outputRoot) {
       });
       createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-elf-relocations.txt`, `${relocationLines.join("\n")}\n`));
     }
+    if (elfReport.seccompPolicies.length) {
+      createdFiles.push(
+        writeGeneratedFile(outputRoot, `${baseName}-seccomp-bpf.txt`, buildSeccompReport(path.basename(filePath), elfReport.seccompPolicies)),
+      );
+    }
+    if (elfReport.coreReport) {
+      createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-core-report.txt`, buildCoreReport(path.basename(filePath), elfReport.coreReport)));
+    }
+    if (elfReport.pwnSurface) {
+      const checksec = elfReport.pwnSurface.checksec;
+      const checksecLines = [
+        `RELRO: ${checksec.relro}`,
+        `NX: ${checksec.nx === null ? "unknown" : checksec.nx ? "enabled" : "disabled"}`,
+        `PIE: ${checksec.pie ? "enabled" : checksec.sharedObject ? "shared-object" : "disabled"}`,
+        `Canary: ${checksec.canary ? "found" : "not found"}`,
+        `Fortify: ${checksec.fortify ? "found" : "not found"}`,
+        `Stripped: ${checksec.stripped ? "yes" : "no"}`,
+        `RPATH/RUNPATH: ${checksec.rpath ? "present" : "none"}`,
+      ];
+      createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-checksec-lite.txt`, `${checksecLines.join("\n")}\n`));
+
+      if (elfReport.pwnSurface.dangerousFunctions.length) {
+        const surfaceLines = elfReport.pwnSurface.dangerousFunctions.map((item) => `${item.name}: ${item.severity} - ${item.reason}`);
+        createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-pwn-surface.txt`, `${surfaceLines.join("\n")}\n`));
+      }
+      if (elfReport.pwnSurface.hypotheses.length) {
+        const pathLines = elfReport.pwnSurface.hypotheses.flatMap((item) => [
+          `[${item.priority}] ${item.title}`,
+          `reason: ${item.reason}`,
+          `verify: ${item.verify}`,
+          "",
+        ]);
+        createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-pwn-paths.txt`, `${pathLines.join("\n").trimEnd()}\n`));
+      }
+      const profile = elfReport.pwnSurface.ioProfile;
+      const profileLines = [
+        `mode: ${profile.mode}`,
+        ...["input", "output", "network", "heap", "process", "constraints", "setup"].map(
+          (group) => `${group}: ${profile[group].join(", ") || "none"}`,
+        ),
+      ];
+      createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-pwn-io-profile.txt`, `${profileLines.join("\n")}\n`));
+      const runtimeLines = [
+        `role: ${elfReport.role}`,
+        `format: ${elfReport.format}`,
+        `machine: ${elfReport.machine}`,
+        `interpreter: ${elfReport.interpreter || "none"}`,
+        `soname: ${elfReport.soname || "none"}`,
+        `build-id: ${elfReport.buildId || "unknown"}`,
+        `glibc-versions: ${elfReport.glibcVersions.join(", ") || "none detected"}`,
+        ...elfReport.neededLibraries.map((item) => `needed: ${item}`),
+      ];
+      createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-elf-runtime-profile.txt`, `${runtimeLines.join("\n")}\n`));
+      const memory = elfReport.pwnSurface.memorySurface;
+      const memoryLines = [
+        `writable: ${memory.writable.map((item) => `${item.name} ${formatHex(item.address)} ${formatHex(item.size)} ${item.permissions}`).join(", ") || "none detected"}`,
+        `executable: ${memory.executable.map((item) => `${item.name} ${formatHex(item.address)} ${formatHex(item.size)} ${item.permissions}`).join(", ") || "none detected"}`,
+        `rwx: ${memory.rwx.map((item) => `${item.name} ${formatHex(item.address)} ${formatHex(item.size)} ${item.permissions}`).join(", ") || "none detected"}`,
+        `staging: ${memory.staging.map((item) => `${item.name} ${formatHex(item.address)} ${formatHex(item.size)} ${item.permissions}`).join(", ") || "none detected"}`,
+      ];
+      createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-pwn-memory-surface.txt`, `${memoryLines.join("\n")}\n`));
+      if (elfReport.pwnSurface.interestingStrings.length) {
+        createdFiles.push(
+          writeGeneratedFile(outputRoot, `${baseName}-pwn-interesting-strings.txt`, `${elfReport.pwnSurface.interestingStrings.join("\n")}\n`),
+        );
+      }
+      if (elfReport.pwnSurface.gadgets.length) {
+        const capabilities = elfReport.pwnSurface.gadgetCapabilities;
+        const capabilityLines = [
+          `argument-control: ${capabilities.argumentControl.join(", ") || "none detected"}`,
+          `syscall: ${capabilities.syscall ? "yes" : "no"}`,
+          `stack-pivot: ${capabilities.stackPivot ? "yes" : "no"}`,
+          `stack-adjust: ${capabilities.stackAdjust ? "yes" : "no"}`,
+          `alignment-ret: ${capabilities.alignmentRet ? "yes" : "no"}`,
+        ];
+        createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-rop-capabilities-lite.txt`, `${capabilityLines.join("\n")}\n`));
+        const gadgetLines = elfReport.pwnSurface.gadgets.map(
+          (item) => `${formatHex(item.address)} ${item.section}+${formatHex(item.offset)} ${item.label}`,
+        );
+        createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-rop-gadgets-lite.txt`, `${gadgetLines.join("\n")}\n`));
+      }
+    }
     return {
-      message: "\u5df2\u63d0\u53d6 ELF \u5934\u3001section\u3001\u52a8\u6001\u4f9d\u8d56\u3001\u7b26\u53f7\u4e0e\u91cd\u5b9a\u4f4d\u7ebf\u7d22\u3002",
+      message:
+        "\u5df2\u63d0\u53d6 ELF \u5934\u3001checksec\u3001Pwn \u98ce\u9669\u51fd\u6570\u3001ROP gadget\u3001seccomp BPF\u3001core dump\u3001\u52a8\u6001\u4f9d\u8d56\u3001\u7b26\u53f7\u4e0e\u91cd\u5b9a\u4f4d\u7ebf\u7d22\u3002",
       createdFiles: dedupeStrings(createdFiles),
     };
   }
@@ -5525,21 +9630,78 @@ function extractApkPackage(filePath, outputRoot) {
   };
 }
 
-function decodeEncodedText(filePath, outputRoot) {
+function wrapDecodedValuesWithFlagHints(decoded, flagPrefixHints = []) {
+  const wrapped = [];
+  decoded.forEach((item) => {
+    const value = String(item.value || "").trim();
+    if (!/^[A-Za-z0-9_!@#$%+=.-]{6,160}$/.test(value) || value.includes("{")) {
+      return;
+    }
+    flagPrefixHints.forEach((prefix) => {
+      wrapped.push(`${prefix}{${value}}`);
+    });
+  });
+  return dedupeStrings(wrapped);
+}
+
+function decodeEncodedText(filePath, outputRoot, options = {}) {
   const buffer = fs.readFileSync(filePath);
   const decoded = smartDecodeTextContent(buffer);
 
   if (!decoded.length) {
-    throw new Error("\u6ca1\u6709\u627e\u5230\u53ef\u76f4\u63a5\u89e3\u7801\u7684 Base/Hex/XOR/ROT/\u96f6\u5bbd/\u7a7a\u767d/Bacon/Brainfuck \u7ebf\u7d22\u3002");
+    throw new Error("\u6ca1\u6709\u627e\u5230\u53ef\u76f4\u63a5\u89e3\u7801\u7684 Base/Hex/XOR/ROT/\u6570\u5b57\u5750\u6807/NATO/DNA/\u96f6\u5bbd/\u7a7a\u767d/Morse/Polybius/Bacon/Brainfuck/Ook \u7ebf\u7d22\u3002");
   }
 
   const sections = decoded.map((item, index) => {
     return `# ${item.label || item.type.toUpperCase()} ${index + 1}\n${item.value}\n`;
   });
+  const wrapped = wrapDecodedValuesWithFlagHints(decoded, options.flagPrefixHints || []);
+  if (wrapped.length) {
+    sections.push(`# FLAG FORMAT HINTS\n${wrapped.join("\n")}\n`);
+  }
   const generatedName = `${sanitizeSegment(path.parse(filePath).name)}-decoded.txt`;
   const outPath = writeGeneratedFile(outputRoot, generatedName, sections.join("\n"));
   return {
     message: "\u5df2\u5c06\u89e3\u7801\u5185\u5bb9\u8f93\u51fa\u4e3a\u6587\u672c\u6587\u4ef6\u3002",
+    createdFiles: [outPath],
+  };
+}
+
+function solveRsaParameters(filePath, outputRoot) {
+  const buffer = fs.readFileSync(filePath);
+  const report = analyzeRsaParameters(decodeBufferAsText(buffer));
+  if (report.parameters.size < 3 || (!report.findings.length && !report.plaintexts.length)) {
+    throw new Error("\u53d1\u73b0 RSA \u53c2\u6570\uff0c\u4f46\u6ca1\u6709\u547d\u4e2d\u53ef\u786e\u5b9a\u81ea\u52a8\u6c42\u89e3\u7684\u5f31\u70b9\u3002");
+  }
+  const outPath = writeGeneratedFile(
+    outputRoot,
+    `${sanitizeSegment(path.parse(filePath).name)}-rsa-report.txt`,
+    buildRsaReport(path.basename(filePath), report),
+  );
+  return {
+    message: `\u5df2\u5206\u6790 ${report.parameters.size} \u4e2a RSA \u53c2\u6570\uff0c\u6062\u590d ${report.plaintexts.length} \u4e2a\u660e\u6587\u5019\u9009\u3002`,
+    createdFiles: [outPath],
+  };
+}
+
+function analyzeSignalData(filePath, outputRoot) {
+  const extension = path.extname(filePath).toLowerCase();
+  const stat = fs.statSync(filePath);
+  const buffer = readSample(filePath, Math.min(stat.size, MAX_TEXT_BYTES * 4)).buffer;
+  const report = analyzeSignalArtifact(buffer, extension);
+  if (!report) {
+    throw new Error("没有识别到可解析的 VCD 波形或二值逻辑 CSV。");
+  }
+  const outPath = writeGeneratedFile(
+    outputRoot,
+    `${sanitizeSegment(path.parse(filePath).name)}-signal-analysis.txt`,
+    buildSignalReport(path.basename(filePath), report),
+  );
+  return {
+    message:
+      report.kind === "vcd"
+        ? "已解析 VCD 信号并自动尝试时钟边沿、位序、位反转和单字节 XOR。"
+        : "已解析二值 CSV 并自动尝试列位流与常见门电路组合。",
     createdFiles: [outPath],
   };
 }
@@ -5564,6 +9726,22 @@ function exportStrings(filePath, outputRoot) {
   const outPath = writeGeneratedFile(outputRoot, generatedName, `${sections.join("\n")}\n`);
   return {
     message: "\u5df2\u5bfc\u51fa ASCII / UTF-16 strings \u7ed3\u679c\u3002",
+    createdFiles: [outPath],
+  };
+}
+
+function extractModelClues(filePath, outputRoot) {
+  const extension = path.extname(filePath).toLowerCase();
+  const stat = fs.statSync(filePath);
+  const buffer = readSample(filePath, Math.min(stat.size, MAX_ARCHIVE_TOTAL_BYTES)).buffer;
+  const report = analyzeModelArtifact(buffer, extension);
+  const outPath = writeGeneratedFile(
+    outputRoot,
+    `${sanitizeSegment(path.parse(filePath).name)}-model-report.txt`,
+    buildModelReport(path.basename(filePath), report),
+  );
+  return {
+    message: "\u5df2\u5b89\u5168\u63d0\u53d6\u6a21\u578b\u5143\u6570\u636e\u3001\u5f20\u91cf/\u7b97\u5b50\u548c\u53cd\u5e8f\u5217\u5316\u7ebf\u7d22\uff0c\u672a\u6267\u884c\u6a21\u578b\u5185\u5bb9\u3002",
     createdFiles: [outPath],
   };
 }
@@ -5626,7 +9804,7 @@ function buildBuiltinToolboxReport(filePath) {
   const directFlags = findFlagCandidates(text, `${fileName} (built-in strings)`);
   appendReportSection(lines, "flag hits", directFlags.map((item) => `- ${item.value} (${item.source})`), "未直接命中 flag 样式。");
 
-  const decoded = smartDecodeTextContent(Buffer.from(text, "utf8"));
+  const decoded = containsPlaceholderFlag(text) ? [] : smartDecodeTextContent(Buffer.from(text, "utf8"));
   appendReportSection(
     lines,
     "ciphey-lite decode attempts",
@@ -5634,15 +9812,50 @@ function buildBuiltinToolboxReport(filePath) {
     "未发现可直接自动还原的编码层。",
   );
 
-  if (descriptor.badge === "PNG") {
-    const pngText = extractPngTextChunks(buffer);
-    appendReportSection(lines, "zsteg-lite PNG text chunks", pngText.map((item) => `- ${item}`), "未发现 PNG 文本块。");
+  if (["PNG", "BMP"].includes(descriptor.badge)) {
+    const pngText = descriptor.badge === "PNG" ? extractPngTextChunks(buffer) : [];
+    if (descriptor.badge === "PNG") {
+      appendReportSection(lines, "zsteg-lite PNG text chunks", pngText.map((item) => `- ${item}`), "未发现 PNG 文本块。");
+    }
     const lsb = collectPngLSBCandidates(buffer);
     const lsbLines = lsb.slice(0, 12).flatMap((item) => {
       const header = `- ${item.traversal.toUpperCase()} ${item.channel} bit${item.bitPlane} ${item.bitOrder.toUpperCase()}`;
       return [header, ...item.printable.slice(0, 4).map((entry) => `  ${entry}`), ...item.flags.map((entry) => `  ${entry.value}`)];
     });
-    appendReportSection(lines, "zsteg-lite PNG LSB", lsbLines, "未发现常见低位平面可读文本。");
+    appendReportSection(lines, `zsteg-lite ${descriptor.badge} LSB`, lsbLines, "未发现常见低位平面可读文本。");
+  }
+
+  if (descriptor.badge === "GIF") {
+    const gifText = parseGifTextExtensions(buffer);
+    const descriptorBits = collectGifDescriptorBitstreams(buffer);
+    appendReportSection(
+      lines,
+      "GIF extension text",
+      [
+        ...gifText.map((item) => `- ${item.kind}${item.identifier ? ` (${item.identifier})` : ""}: ${item.text}`),
+        ...descriptorBits.flatMap((item) => [
+          `- ${item.label} frames=${item.frameCount}`,
+          ...item.flags.map((flag) => `- flag: ${flag.value}`),
+          ...item.printable.slice(0, 8).map((value) => `- text: ${value}`),
+        ]),
+      ],
+      "未发现 GIF 注释、应用或纯文本扩展。",
+    );
+  }
+  if (descriptor.badge === "MP4") {
+    const report = analyzeMp4Buffer(buffer);
+    appendReportSection(
+      lines,
+      "MP4 box-lite",
+      report
+        ? [
+            ...report.topLevel.map((box) => `- box: ${box.type} offset=${box.offset} size=${box.size}`),
+            ...report.chunkTables.map((table) => `- ${table.type}: entries=${table.count} unsorted=${table.unsorted}`),
+            ...report.anomalies.map((item) => `- anomaly: ${item}`),
+          ]
+        : [],
+      "未解析到 MP4 box 结构。",
+    );
   }
 
   if (descriptor.family === "network") {
@@ -5695,15 +9908,46 @@ function buildBuiltinToolboxReport(filePath) {
   const elfReport = descriptor.badge === "ELF" ? parseElfBinary(buffer) : null;
   if (elfReport) {
     const elfSymbols = dedupeStrings(elfReport.symbolTables.flatMap((table) => [...table.functions, ...table.globals, ...table.objects])).slice(0, 80);
+    const checksec = elfReport.pwnSurface?.checksec;
     appendReportSection(
       lines,
       "rabin2-lite ELF",
       [
         `- machine: ${elfReport.machine}`,
+        `- role: ${elfReport.role}`,
         `- entry: ${formatHex(elfReport.entry)}`,
+        `- build-id: ${elfReport.buildId || "unknown"}`,
+        `- glibc-versions: ${elfReport.glibcVersions.join(", ") || "none"}`,
         `- sections: ${elfReport.sections.length}`,
         `- symbols: ${elfSymbols.length}`,
+        ...(checksec
+          ? [
+              `- RELRO: ${checksec.relro}`,
+              `- NX: ${checksec.nx === null ? "unknown" : checksec.nx ? "enabled" : "disabled"}`,
+              `- PIE: ${checksec.pie ? "enabled" : checksec.sharedObject ? "shared-object" : "disabled"}`,
+              `- Canary: ${checksec.canary ? "found" : "not found"}`,
+            ]
+          : []),
         ...elfReport.neededLibraries.map((item) => `- needed: ${item}`),
+        ...(elfReport.pwnSurface?.dangerousFunctions || []).slice(0, 12).map((item) => `- pwn-surface: ${item.name} ${item.severity} ${item.reason}`),
+        ...(elfReport.pwnSurface?.hypotheses || []).slice(0, 8).map((item) => `- pwn-path: [${item.priority}] ${item.title} - ${item.reason}`),
+        ...(elfReport.pwnSurface
+          ? [
+              `- pwn-io-mode: ${elfReport.pwnSurface.ioProfile.mode}`,
+              `- pwn-constraints: ${elfReport.pwnSurface.ioProfile.constraints.join(", ") || "none"}`,
+              `- pwn-staging: ${elfReport.pwnSurface.memorySurface.staging.map((item) => item.name).join(", ") || "none"}`,
+              `- pwn-rwx: ${elfReport.pwnSurface.memorySurface.rwx.map((item) => item.name).join(", ") || "none"}`,
+              ...elfReport.pwnSurface.interestingStrings.slice(0, 12).map((item) => `- pwn-string: ${item}`),
+            ]
+          : []),
+        ...(elfReport.pwnSurface?.gadgetCounts || []).slice(0, 8).map((item) => `- gadget: ${item.label} x${item.count}`),
+        ...(elfReport.pwnSurface
+          ? [
+              `- rop-args: ${elfReport.pwnSurface.gadgetCapabilities.argumentControl.join(", ") || "none"}`,
+              `- rop-syscall: ${elfReport.pwnSurface.gadgetCapabilities.syscall ? "yes" : "no"}`,
+              `- rop-stack-pivot: ${elfReport.pwnSurface.gadgetCapabilities.stackPivot ? "yes" : "no"}`,
+            ]
+          : []),
         ...elfSymbols.slice(0, 40).map((item) => `- symbol: ${item}`),
       ],
     );
@@ -5731,7 +9975,7 @@ function runBuiltinToolbox(filePath, outputRoot) {
   const report = buildBuiltinToolboxReport(filePath);
   const outPath = writeGeneratedFile(outputRoot, `${sanitizeSegment(path.parse(filePath).name)}-builtin-toolbox.txt`, report);
   return {
-    message: "已运行内置工具箱：strings-lite、binwalk-lite、ciphey-lite、zsteg/tshark/rabin2/exif 子集。",
+    message: "已运行内置工具箱：strings-lite、binwalk-lite、ciphey-lite、zsteg/tshark/checksec/ROP/rabin2/exif 子集。",
     createdFiles: [outPath],
   };
 }
@@ -5753,9 +9997,61 @@ function extractTrafficSessions(filePath, outputRoot) {
   summary.exportedObjects.slice(0, MAX_HTTP_OBJECTS).forEach((item) => {
     createdFiles.push(writeGeneratedFile(outputRoot, item.name, item.content));
   });
+  summary.streamObjects.forEach((item) => {
+    createdFiles.push(writeGeneratedFile(outputRoot, item.name, item.content));
+  });
+  if (summary.covertCandidates.length) {
+    const lines = summary.covertCandidates.flatMap((item) => [`# ${item.label}`, item.text, ""]);
+    createdFiles.push(writeGeneratedFile(outputRoot, `${sanitizeSegment(path.parse(filePath).name)}-covert-candidates.txt`, `${lines.join("\n")}\n`));
+  }
+  if (summary.usbHid?.keyboardText) {
+    createdFiles.push(writeGeneratedFile(outputRoot, `${sanitizeSegment(path.parse(filePath).name)}-usb-keyboard.txt`, `${summary.usbHid.keyboardText}\n`));
+  }
+  if (summary.usbHid?.mouseEvents?.length) {
+    const csv = [
+      "frame,layout,report_id,buttons,dx,dy,wheel,horizontal_wheel,x,y",
+      ...summary.usbHid.mouseEvents.map(
+        (item) =>
+          `${item.frameIndex},${item.layout},${item.reportId ?? ""},${item.buttons},${item.dx},${item.dy},${item.wheel},${item.horizontalWheel || 0},${item.x},${item.y}`,
+      ),
+    ].join("\n");
+    createdFiles.push(writeGeneratedFile(outputRoot, `${sanitizeSegment(path.parse(filePath).name)}-usb-mouse.csv`, `${csv}\n`));
+    ["normal", "invert-y", "swap-xy"].forEach((transform) => {
+      const image = renderUsbMouseTrack(summary.usbHid.mouseEvents, transform);
+      if (image) {
+        createdFiles.push(
+          writeGeneratedFile(
+            outputRoot,
+            `${sanitizeSegment(path.parse(filePath).name)}-usb-mouse-track-${transform}.png`,
+            image,
+          ),
+        );
+      }
+    });
+  }
+  if (summary.usbHid?.controllerEvents?.length) {
+    const csv = [
+      "frame,bus,device,endpoint,packet,buttons,left_trigger,right_trigger,left_x,left_y,right_x,right_y",
+      ...summary.usbHid.controllerEvents.map(
+        (item) =>
+          `${item.frameIndex},${item.busId ?? ""},${item.deviceAddress ?? ""},${item.endpoint ?? ""},${item.packet},${item.buttons},${item.leftTrigger},${item.rightTrigger},${item.leftX},${item.leftY},${item.rightX},${item.rightY}`,
+      ),
+    ].join("\n");
+    const baseName = sanitizeSegment(path.parse(filePath).name);
+    createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-usb-controller.csv`, `${csv}\n`));
+    [
+      ["left", "leftX", "leftY"],
+      ["right", "rightX", "rightY"],
+    ].forEach(([label, xKey, yKey]) => {
+      const image = renderControllerStickHeatmap(summary.usbHid.controllerEvents, xKey, yKey);
+      if (image) {
+        createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-usb-controller-${label}-stick.png`, image));
+      }
+    });
+  }
 
   return {
-    message: "\u5df2\u63d0\u53d6 HTTP / DNS / TLS / \u4f1a\u8bdd\u7ebf\u7d22\uff0c\u5e76\u5bfc\u51fa\u53ef\u7ee7\u7eed\u5206\u6790\u7684\u5bf9\u8c61\u3002",
+    message: "已提取 HTTP / DNS / TLS / USB HID / ICMP / 会话重组与隐写候选，并导出可继续分析的对象。",
     createdFiles,
   };
 }
@@ -5839,7 +10135,7 @@ function extractImageViews(filePath, outputRoot) {
   const buffer = fs.readFileSync(filePath);
   const raster = decodeImageRaster(buffer);
   if (!raster) {
-    throw new Error("\u76ee\u524d\u53ea\u652f\u6301 PNG / JPEG \u7684\u901a\u9053\u5bfc\u51fa\u3002");
+    throw new Error("\u76ee\u524d\u53ea\u652f\u6301 PNG / JPEG / BMP \u7684\u901a\u9053\u5bfc\u51fa\u3002");
   }
 
   ensureOutputRoot(outputRoot);
@@ -5940,6 +10236,16 @@ function buildAudioSummaryText(fileName, wavInfo, lsbCandidates, audioSignal, st
         lines.push("");
       });
     }
+    if (audioSignal.alphabetTone) {
+      lines.push("# ALPHABET TONE MAPPING");
+      lines.push(`tone-duration: ${audioSignal.alphabetTone.durationMs} ms`);
+      lines.push(`frequencies: ${audioSignal.alphabetTone.trainingFrequencies.join(", ")}`);
+      lines.push(audioSignal.alphabetTone.decoded);
+      if (audioSignal.alphabetTone.normalized !== audioSignal.alphabetTone.decoded) {
+        lines.push(audioSignal.alphabetTone.normalized);
+      }
+      lines.push("");
+    }
   }
   if (strings.length) {
     lines.push("# STRINGS PREVIEW");
@@ -5966,9 +10272,14 @@ function extractAudioClues(filePath, outputRoot) {
   const wavInfo = parseWavBuffer(buffer);
   const lsbCandidates = wavInfo ? collectAudioLSBCandidates(buffer, wavInfo) : [];
   const audioSignal = wavInfo ? analyzeWavSignal(buffer, wavInfo, { maxSamples: MAX_AUDIO_ANALYSIS_SAMPLES }) : null;
+  if (audioSignal && !audioSignal.alphabetTone) {
+    audioSignal.alphabetTone = decodeAlphabetToneWav(buffer, wavInfo);
+  }
   const strings = dedupeStrings(extractAsciiStrings(buffer, 6, 1200).concat(extractUnicodeStrings(buffer, 6, 400)));
 
-  const hasSignal = audioSignal && (audioSignal.activeSegments.length || audioSignal.morseCandidates.length || audioSignal.dominantFrequencies.length);
+  const hasSignal =
+    audioSignal &&
+    (audioSignal.activeSegments.length || audioSignal.morseCandidates.length || audioSignal.dominantFrequencies.length || audioSignal.alphabetTone);
   if (!wavInfo && !lsbCandidates.length && !strings.length && !hasSignal) {
     throw new Error("\u6ca1\u6709\u4ece\u97f3\u9891\u9644\u4ef6\u4e2d\u63d0\u53d6\u5230\u9ad8\u4fe1\u53f7\u7ebf\u7d22\u3002");
   }
@@ -6023,9 +10334,23 @@ function extractAudioClues(filePath, outputRoot) {
     });
     createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-audio-morse.txt`, `${morseLines.join("\n")}\n`));
   }
+  if (audioSignal?.alphabetTone) {
+    const alphabetLines = [
+      "# AUDIO ALPHABET TONE MAPPING",
+      `file: ${path.basename(filePath)}`,
+      `tone-duration: ${audioSignal.alphabetTone.durationMs} ms`,
+      `frequencies: ${audioSignal.alphabetTone.trainingFrequencies.join(", ")}`,
+      "",
+      audioSignal.alphabetTone.decoded,
+      "",
+      audioSignal.alphabetTone.normalized,
+      "",
+    ];
+    createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-audio-alphabet-tones.txt`, alphabetLines.join("\n")));
+  }
 
   return {
-    message: "\u5df2\u63d0\u53d6 WAV \u5757\u4fe1\u606f\u3001strings\u3001PCM LSB\u3001\u97f3\u8c03\u5206\u6bb5\u548c Morse \u5019\u9009\u3002",
+    message: "\u5df2\u63d0\u53d6 WAV \u5757\u4fe1\u606f\u3001strings\u3001PCM LSB\u3001\u97f3\u8c03\u5206\u6bb5\u3001\u5b57\u6bcd\u8868\u97f3\u8c03\u548c Morse \u5019\u9009\u3002",
     createdFiles: dedupeStrings(createdFiles),
   };
 }
@@ -6801,6 +11126,287 @@ function extractJpegComments(buffer) {
   return dedupeStrings(comments).slice(0, 40);
 }
 
+function readGifSubBlocks(buffer, startOffset) {
+  const chunks = [];
+  let offset = startOffset;
+  while (offset < buffer.length) {
+    const length = buffer[offset];
+    offset += 1;
+    if (length === 0) {
+      break;
+    }
+    if (offset + length > buffer.length) {
+      return { data: Buffer.concat(chunks), nextOffset: buffer.length, truncated: true };
+    }
+    chunks.push(buffer.subarray(offset, offset + length));
+    offset += length;
+  }
+  return { data: Buffer.concat(chunks), nextOffset: offset, truncated: false };
+}
+
+function parseGifTextExtensions(buffer) {
+  if (detectMagic(buffer) !== "gif" || buffer.length < 13) {
+    return [];
+  }
+
+  const results = [];
+  const packed = buffer[10];
+  const globalColorTableSize = packed & 0x80 ? 3 * 2 ** ((packed & 0x07) + 1) : 0;
+  let offset = 13 + globalColorTableSize;
+
+  while (offset < buffer.length && results.length < 40) {
+    const marker = buffer[offset];
+    offset += 1;
+    if (marker === 0x3b) {
+      break;
+    }
+    if (marker === 0x21) {
+      if (offset >= buffer.length) break;
+      const label = buffer[offset];
+      offset += 1;
+
+      if ([0xfe, 0xff, 0x01].includes(label)) {
+        let identifier = "";
+        if (label !== 0xfe) {
+          if (offset >= buffer.length) break;
+          const headerSize = buffer[offset];
+          offset += 1;
+          if (offset + headerSize > buffer.length) break;
+          identifier = decodeBufferAsText(buffer.subarray(offset, offset + headerSize)).trim();
+          offset += headerSize;
+        }
+        const blocks = readGifSubBlocks(buffer, offset);
+        offset = blocks.nextOffset;
+        const text = decodeBufferAsText(blocks.data).trim();
+        if (text || identifier) {
+          results.push({
+            kind: label === 0xfe ? "comment" : label === 0xff ? "application" : "plain-text",
+            identifier,
+            text,
+          });
+        }
+        continue;
+      }
+
+      if (offset >= buffer.length) break;
+      const fixedSize = buffer[offset];
+      offset += 1 + fixedSize;
+      if (offset < buffer.length && buffer[offset] === 0) offset += 1;
+      continue;
+    }
+    if (marker === 0x2c) {
+      if (offset + 9 > buffer.length) break;
+      const imagePacked = buffer[offset + 8];
+      offset += 9;
+      if (imagePacked & 0x80) {
+        offset += 3 * 2 ** ((imagePacked & 0x07) + 1);
+      }
+      if (offset >= buffer.length) break;
+      offset += 1;
+      offset = readGifSubBlocks(buffer, offset).nextOffset;
+      continue;
+    }
+    break;
+  }
+
+  return results;
+}
+
+function collectGifDescriptorBitstreams(buffer) {
+  if (detectMagic(buffer) !== "gif" || buffer.length < 13) {
+    return [];
+  }
+
+  const streams = [0, 2, 4, 6].map((shift) => ({ shift, values: [] }));
+  const globalPacked = buffer[10];
+  const globalColorTableSize = globalPacked & 0x80 ? 3 * 2 ** ((globalPacked & 0x07) + 1) : 0;
+  let offset = 13 + globalColorTableSize;
+  let frameCount = 0;
+
+  while (offset < buffer.length && frameCount < 200000) {
+    const marker = buffer[offset];
+    offset += 1;
+    if (marker === 0x3b) {
+      break;
+    }
+    if (marker === 0x21) {
+      if (offset >= buffer.length) break;
+      offset += 1;
+      if (offset >= buffer.length) break;
+      const fixedSize = buffer[offset];
+      offset += 1 + fixedSize;
+      offset = readGifSubBlocks(buffer, offset).nextOffset;
+      continue;
+    }
+    if (marker !== 0x2c || offset + 9 > buffer.length) {
+      break;
+    }
+
+    const imagePacked = buffer[offset + 8];
+    streams.forEach((stream) => stream.values.push((imagePacked >> stream.shift) & 0x03));
+    frameCount += 1;
+    offset += 9;
+    if (imagePacked & 0x80) {
+      offset += 3 * 2 ** ((imagePacked & 0x07) + 1);
+    }
+    if (offset >= buffer.length) break;
+    offset += 1;
+    offset = readGifSubBlocks(buffer, offset).nextOffset;
+  }
+
+  const results = [];
+  streams.forEach((stream) => {
+    if (stream.values.length < 16) {
+      return;
+    }
+    ["msb", "lsb"].forEach((order) => {
+      const bytes = [];
+      for (let index = 0; index + 3 < stream.values.length; index += 4) {
+        const values = stream.values.slice(index, index + 4);
+        const byte =
+          order === "msb"
+            ? (values[0] << 6) | (values[1] << 4) | (values[2] << 2) | values[3]
+            : values[0] | (values[1] << 2) | (values[2] << 4) | (values[3] << 6);
+        bytes.push(byte);
+      }
+      const decodedBuffer = Buffer.from(bytes);
+      const text = decodedBuffer.toString("utf8").replace(/\0/g, "").trim();
+      const flags = findFlagCandidates(text, `GIF descriptor bits shift${stream.shift} ${order}`);
+      const printable = extractPrintableSegments(decodedBuffer.toString("latin1"), 6, 40);
+      if (flags.length || printable.length) {
+        results.push({
+          label: `descriptor-bits-shift${stream.shift}-${order}`,
+          frameCount,
+          text,
+          printable,
+          flags,
+        });
+      }
+    });
+  });
+  return results.slice(0, 12);
+}
+
+function readMp4BoxHeader(buffer, offset, limit = buffer.length) {
+  if (offset < 0 || offset + 8 > limit) {
+    return null;
+  }
+  let size = buffer.readUInt32BE(offset);
+  const type = buffer.subarray(offset + 4, offset + 8).toString("ascii");
+  let headerSize = 8;
+  if (size === 1) {
+    if (offset + 16 > limit) return null;
+    const largeSize = buffer.readBigUInt64BE(offset + 8);
+    if (largeSize > BigInt(Number.MAX_SAFE_INTEGER)) return null;
+    size = Number(largeSize);
+    headerSize = 16;
+  } else if (size === 0) {
+    size = limit - offset;
+  }
+  if (size < headerSize || offset + size > limit || !/^[\x20-\x7e]{4}$/.test(type)) {
+    return null;
+  }
+  return { offset, size, type, headerSize, end: offset + size };
+}
+
+function analyzeMp4Buffer(buffer) {
+  if (detectMagic(buffer) !== "mp4") {
+    return null;
+  }
+  const topLevel = [];
+  let offset = 0;
+  while (offset + 8 <= buffer.length && topLevel.length < 256) {
+    const box = readMp4BoxHeader(buffer, offset);
+    if (!box) break;
+    topLevel.push(box);
+    offset = box.end;
+  }
+
+  const chunkTables = [];
+  ["stco", "co64"].forEach((type) => {
+    const marker = Buffer.from(type, "ascii");
+    let cursor = 4;
+    while (cursor < buffer.length && chunkTables.length < 128) {
+      const typeOffset = buffer.indexOf(marker, cursor);
+      if (typeOffset === -1) break;
+      const box = readMp4BoxHeader(buffer, typeOffset - 4);
+      cursor = typeOffset + 4;
+      if (!box || box.type !== type || box.size < 16) {
+        continue;
+      }
+      const count = buffer.readUInt32BE(box.offset + box.headerSize + 4);
+      const width = type === "co64" ? 8 : 4;
+      const valuesOffset = box.offset + box.headerSize + 8;
+      if (count > 1000000 || valuesOffset + count * width > box.end) {
+        continue;
+      }
+      const values = [];
+      let unsorted = false;
+      for (let index = 0; index < count; index += 1) {
+        const entryOffset = valuesOffset + index * width;
+        const value = width === 8 ? buffer.readBigUInt64BE(entryOffset) : BigInt(buffer.readUInt32BE(entryOffset));
+        if (values.length && value < values[values.length - 1]) {
+          unsorted = true;
+        }
+        values.push(value);
+      }
+      chunkTables.push({ ...box, count, width, valuesOffset, values, unsorted });
+    }
+  });
+
+  const lastBox = topLevel[topLevel.length - 1];
+  const trailingFreeTrack =
+    lastBox && lastBox.type === "free" && lastBox.size > 64 && topLevel.some((box) => box.type === "moov") ? lastBox : null;
+  return {
+    topLevel,
+    chunkTables,
+    trailingFreeTrack,
+    anomalies: [
+      ...(trailingFreeTrack ? [`Trailing free box after moov (${trailingFreeTrack.size} bytes) may be a hidden trak box.`] : []),
+      ...chunkTables.filter((table) => table.unsorted).map((table) => `${table.type} table at ${table.offset} has unsorted chunk offsets.`),
+    ],
+  };
+}
+
+function extractMp4Clues(filePath, outputRoot) {
+  const buffer = fs.readFileSync(filePath);
+  const report = analyzeMp4Buffer(buffer);
+  if (!report) {
+    throw new Error("\u6ca1\u6709\u89e3\u6790\u5230\u53ef\u7528\u7684 MP4 box \u7ed3\u6784\u3002");
+  }
+  const baseName = sanitizeSegment(path.parse(filePath).name);
+  const lines = ["# MP4 BOX SUMMARY", `file: ${path.basename(filePath)}`, ""];
+  report.topLevel.forEach((box) => lines.push(`${box.type} offset=${box.offset} size=${box.size}`));
+  lines.push("", "# CHUNK TABLES");
+  report.chunkTables.forEach((table) => lines.push(`${table.type} offset=${table.offset} entries=${table.count} unsorted=${table.unsorted}`));
+  lines.push("", "# ANOMALIES");
+  lines.push(...(report.anomalies.length ? report.anomalies : ["none detected"]));
+  const createdFiles = [writeGeneratedFile(outputRoot, `${baseName}-mp4-boxes.txt`, `${lines.join("\n")}\n`)];
+
+  if (report.trailingFreeTrack || report.chunkTables.some((table) => table.unsorted)) {
+    const repaired = Buffer.from(buffer);
+    if (report.trailingFreeTrack) {
+      repaired.write("trak", report.trailingFreeTrack.offset + 4, 4, "ascii");
+    }
+    report.chunkTables
+      .filter((table) => table.unsorted)
+      .forEach((table) => {
+        const sorted = [...table.values].sort((left, right) => (left < right ? -1 : left > right ? 1 : 0));
+        sorted.forEach((value, index) => {
+          const entryOffset = table.valuesOffset + index * table.width;
+          if (table.width === 8) repaired.writeBigUInt64BE(value, entryOffset);
+          else repaired.writeUInt32BE(Number(value), entryOffset);
+        });
+      });
+    createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-repaired.mp4`, repaired));
+  }
+
+  return {
+    message: report.anomalies.length ? "\u5df2\u68c0\u6d4b\u5e76\u4fee\u590d MP4 box / chunk offset \u5f02\u5e38\u3002" : "\u5df2\u5bfc\u51fa MP4 box \u7ed3\u6784\u3002",
+    createdFiles,
+  };
+}
+
 function getJpegMarkerName(marker) {
   if (marker === 0xda) {
     return "SOS";
@@ -7005,6 +11611,14 @@ function extractImageMetadata(filePath, outputRoot) {
   const comments = strings.filter((value) => /flag|comment|author|software|icc|photoshop|adobe/i.test(value)).slice(0, 40);
   comments.forEach((value) => lines.push(value));
   extractJpegComments(buffer).forEach((value) => lines.push(value));
+  parseGifTextExtensions(buffer).forEach((item) => {
+    lines.push(`GIF ${item.kind}${item.identifier ? ` (${item.identifier})` : ""}: ${item.text}`);
+  });
+  collectGifDescriptorBitstreams(buffer).forEach((item) => {
+    lines.push(`GIF ${item.label} frames=${item.frameCount}`);
+    item.printable.forEach((value) => lines.push(value));
+    item.flags.forEach((flag) => lines.push(flag.value));
+  });
 
   if (!lines.length) {
     throw new Error("\u6ca1\u6709\u63d0\u53d6\u5230\u660e\u663e\u7684\u56fe\u50cf\u5143\u6570\u636e\u6216\u6ce8\u91ca\u5185\u5bb9\u3002");
@@ -7033,11 +11647,38 @@ function extractPngText(filePath, outputRoot) {
   };
 }
 
+function repairPngDimensions(filePath, outputRoot) {
+  const buffer = fs.readFileSync(filePath);
+  const report = analyzePngDimensionCandidates(buffer);
+  if (!report?.anomalous) {
+    throw new Error("PNG IHDR \u5bbd\u9ad8\u4e0e IDAT \u626b\u63cf\u7ebf\u7ed3\u6784\u4e00\u81f4\uff0c\u6ca1\u6709\u9700\u8981\u81ea\u52a8\u4fee\u590d\u7684\u5c3a\u5bf8\u5f02\u5e38\u3002");
+  }
+  const baseName = sanitizeSegment(path.parse(filePath).name);
+  const alternatives = report.candidates.filter((item) => !item.original && item.filterScore >= 0.98).slice(0, 4);
+  const lines = [
+    "# PNG DIMENSION CANDIDATES",
+    `file: ${path.basename(filePath)}`,
+    `original: ${report.width}x${report.height}`,
+    `inflated-bytes: ${report.inflatedBytes}`,
+    "",
+    ...alternatives.map((item) => `${item.width}x${item.height} filter-score=${item.filterScore.toFixed(3)}`),
+  ];
+  const createdFiles = [writeGeneratedFile(outputRoot, `${baseName}-png-dimensions.txt`, `${lines.join("\n")}\n`)];
+  alternatives.forEach((item, index) => {
+    createdFiles.push(writeGeneratedFile(outputRoot, `${baseName}-repaired-${index + 1}-${item.width}x${item.height}.png`, patchPngDimensions(buffer, item.width, item.height)));
+  });
+  return {
+    message: `\u5df2\u6309 IDAT \u626b\u63cf\u7ebf\u7ed3\u6784\u751f\u6210 ${alternatives.length} \u4e2a PNG \u5bbd\u9ad8\u4fee\u590d\u5019\u9009\u3002`,
+    createdFiles,
+  };
+}
+
 function extractPngLsb(filePath, outputRoot) {
   const buffer = fs.readFileSync(filePath);
+  const format = detectMagic(buffer).toUpperCase() || "IMAGE";
   const candidates = collectPngLSBCandidates(buffer);
   if (!candidates.length) {
-    throw new Error("\u6ca1\u6709\u63d0\u53d6\u5230\u53ef\u7528\u7684 PNG \u4f4e\u4f4d\u5e73\u9762\u6587\u672c\u5019\u9009\u3002");
+    throw new Error(`\u6ca1\u6709\u63d0\u53d6\u5230\u53ef\u7528\u7684 ${format} \u4f4e\u4f4d\u5e73\u9762\u6587\u672c\u5019\u9009\u3002`);
   }
 
   const sections = candidates.flatMap((item) => {
@@ -7047,11 +11688,130 @@ function extractPngLsb(filePath, outputRoot) {
     lines.push("");
     return lines;
   });
-  const generatedName = `${sanitizeSegment(path.parse(filePath).name)}-png-lsb.txt`;
+  const generatedName = `${sanitizeSegment(path.parse(filePath).name)}-${format.toLowerCase()}-lsb.txt`;
   const outPath = writeGeneratedFile(outputRoot, generatedName, `${sections.join("\n")}\n`);
   return {
-    message: "\u5df2\u5bfc\u51fa PNG \u4f4e\u4f4d\u5e73\u9762\u5019\u9009\u6587\u672c\u3002",
+    message: `\u5df2\u5bfc\u51fa ${format} \u4f4e\u4f4d\u5e73\u9762\u5019\u9009\u6587\u672c\u3002`,
     createdFiles: [outPath],
+  };
+}
+
+async function extractImageOcr(filePath, outputRoot) {
+  const { createWorker, PSM } = require("tesseract.js");
+  const language = require("@tesseract.js-data/eng");
+  const worker = await createWorker(language.code, 1, {
+    langPath: language.langPath,
+    gzip: language.gzip,
+    cacheMethod: "none",
+    logger: () => {},
+    errorHandler: () => {},
+  });
+  const attempts = [];
+  try {
+    for (const pageMode of [PSM.AUTO, PSM.SINGLE_BLOCK]) {
+      await worker.setParameters({
+        tessedit_pageseg_mode: pageMode,
+        preserve_interword_spaces: "1",
+        tessedit_char_whitelist: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789{}_ -.:/=",
+      });
+      try {
+        const result = await worker.recognize(filePath);
+        const text = String(result.data?.text || "").trim();
+        if (text) {
+          attempts.push({
+            pageMode,
+            confidence: Number(result.data?.confidence || 0),
+            text,
+            normalized: normalizeOcrFlagCandidates(text),
+          });
+        }
+      } catch (_error) {
+        // Malformed CTF images may be recoverable by other actions but unreadable by OCR.
+      }
+    }
+  } finally {
+    await worker.terminate();
+  }
+
+  if (!attempts.length) {
+    throw new Error("\u5185\u7f6e OCR \u6ca1\u6709\u8bc6\u522b\u5230\u53ef\u7528\u6587\u5b57\u3002");
+  }
+  attempts.sort((left, right) => {
+    const candidateDelta = right.normalized.length - left.normalized.length;
+    return candidateDelta || right.confidence - left.confidence;
+  });
+  const best = attempts[0];
+  const lines = [
+    "# BUILT-IN IMAGE OCR REPORT",
+    `file: ${path.basename(filePath)}`,
+    `engine: tesseract.js / bundled eng data`,
+    `confidence: ${best.confidence.toFixed(1)}`,
+    `page-segmentation-mode: ${best.pageMode}`,
+    "",
+    "## normalized flag candidates",
+    ...(best.normalized.length ? best.normalized : ["(none)"]),
+    "",
+    "## recognized text",
+    best.text,
+    "",
+  ];
+  const outPath = writeGeneratedFile(
+    outputRoot,
+    `${sanitizeSegment(path.parse(filePath).name)}-ocr.txt`,
+    `${lines.join("\n")}\n`,
+  );
+  return {
+    message: `\u5185\u7f6e OCR \u5df2\u8bc6\u522b\u56fe\u50cf\u6587\u5b57\uff0c\u7f6e\u4fe1\u5ea6 ${best.confidence.toFixed(1)}\u3002`,
+    createdFiles: [outPath],
+  };
+}
+
+function extractForensicContainer(filePath, outputRoot) {
+  const stat = fs.statSync(filePath);
+  const extension = path.extname(filePath).toLowerCase();
+  const buffer = readSample(filePath, Math.min(stat.size, MAX_FORENSIC_SCAN_BYTES)).buffer;
+  const report = analyzeForensicContainer(buffer, stat.size, extension);
+  const baseName = sanitizeSegment(path.parse(filePath).name);
+  const createdFiles = [
+    writeGeneratedFile(outputRoot, `${baseName}-forensic-report.txt`, buildForensicReport(path.basename(filePath), report)),
+  ];
+
+  if (report.kind === "disk") {
+    const descriptor = fs.openSync(filePath, "r");
+    try {
+      report.partitions
+        .filter(
+          (item) =>
+            Number.isSafeInteger(item.byteOffset) &&
+            Number.isSafeInteger(item.byteLength) &&
+            item.byteOffset >= 0 &&
+            item.byteLength > 0 &&
+            item.byteLength <= MAX_EXPORTED_PARTITION_BYTES &&
+            item.byteOffset + item.byteLength <= stat.size,
+        )
+        .slice(0, 8)
+        .forEach((item) => {
+          const partition = Buffer.alloc(item.byteLength);
+          fs.readSync(descriptor, partition, 0, item.byteLength, item.byteOffset);
+          createdFiles.push(
+            writeGeneratedFile(
+              outputRoot,
+              `${baseName}-partition-${item.index}-${String(item.fileSystem || "raw").toLowerCase().replace(/[^a-z0-9]+/g, "-")}.img`,
+              partition,
+            ),
+          );
+        });
+    } finally {
+      fs.closeSync(descriptor);
+    }
+  }
+
+  return {
+    message:
+      report.kind === "memory"
+        ? "\u5df2\u63d0\u53d6\u5185\u5b58\u955c\u50cf\u4e2d\u7684\u8fdb\u7a0b\u3001\u547d\u4ee4\u3001URL \u548c\u51ed\u636e\u7ebf\u7d22\u3002"
+        : `\u5df2\u89e3\u6790\u5206\u533a\u8868\u4e0e\u6587\u4ef6\u7cfb\u7edf\uff0c\u5bfc\u51fa ${Math.max(0, createdFiles.length - 1)} \u4e2a\u5c0f\u5206\u533a\u7ee7\u7eed\u5206\u6790\u3002`,
+    createdFiles,
   };
 }
 
@@ -7072,11 +11832,20 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot, options
   if (actionId === "extract-appended-zip" || actionId === "extract-appended-payloads") {
     return actionId === "extract-appended-zip" ? extractAppendedZip(filePath, baseDir) : extractAppendedPayloads(filePath, baseDir);
   }
+  if (actionId === "recover-interleaved-files") {
+    return recoverInterleavedFiles(filePath, baseDir);
+  }
   if (actionId === "extract-archive") {
     return extractArchive(filePath, baseDir, options);
   }
   if (actionId === "extract-image-metadata") {
     return extractImageMetadata(filePath, baseDir);
+  }
+  if (actionId === "extract-image-ocr") {
+    return extractImageOcr(filePath, baseDir);
+  }
+  if (actionId === "extract-mp4-clues") {
+    return extractMp4Clues(filePath, baseDir);
   }
   if (actionId === "extract-jpeg-segments") {
     return extractJpegSegments(filePath, baseDir);
@@ -7115,7 +11884,13 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot, options
     return extractDocumentPackage(filePath, baseDir, options);
   }
   if (actionId === "decode-encoded-text") {
-    return decodeEncodedText(filePath, baseDir);
+    return decodeEncodedText(filePath, baseDir, options);
+  }
+  if (actionId === "solve-rsa-parameters") {
+    return solveRsaParameters(filePath, baseDir);
+  }
+  if (actionId === "analyze-signal-data") {
+    return analyzeSignalData(filePath, baseDir);
   }
   if (actionId === "extract-traffic-sessions") {
     return extractTrafficSessions(filePath, baseDir);
@@ -7123,8 +11898,17 @@ async function runArtifactActionInternal(actionId, filePath, outputRoot, options
   if (actionId === "extract-strings") {
     return exportStrings(filePath, baseDir);
   }
+  if (actionId === "extract-model-clues") {
+    return extractModelClues(filePath, baseDir);
+  }
+  if (actionId === "extract-forensic-container") {
+    return extractForensicContainer(filePath, baseDir);
+  }
   if (actionId === "extract-png-text") {
     return extractPngText(filePath, baseDir);
+  }
+  if (actionId === "repair-png-dimensions") {
+    return repairPngDimensions(filePath, baseDir);
   }
   if (actionId === "extract-png-lsb") {
     return extractPngLsb(filePath, baseDir);
@@ -7143,11 +11927,20 @@ function shouldAutoRun(actionId, artifact) {
   if (actionId === "extract-appended-zip" || actionId === "extract-appended-payloads") {
     return true;
   }
+  if (actionId === "recover-interleaved-files") {
+    return artifact.depth === 0;
+  }
   if (actionId === "extract-archive") {
     return artifact.depth < MAX_PIPELINE_DEPTH;
   }
   if (actionId === "extract-image-metadata") {
     return artifact.depth === 0;
+  }
+  if (actionId === "extract-image-ocr") {
+    return artifact.family === "image" && (artifact.depth === 0 || /(?:contact-sheet|repaired|usb-mouse-track|usb-controller-.*-stick)/i.test(artifact.name));
+  }
+  if (actionId === "extract-mp4-clues") {
+    return artifact.badge === "MP4" && artifact.depth === 0;
   }
   if (actionId === "extract-jpeg-segments") {
     return artifact.badge === "JPEG" && artifact.depth === 0;
@@ -7186,7 +11979,18 @@ function shouldAutoRun(actionId, artifact) {
     return artifact.family === "document" && isOfficePackageExtension(artifact.extension) && artifact.depth < MAX_PIPELINE_DEPTH;
   }
   if (actionId === "decode-encoded-text") {
-    return artifact.depth < MAX_PIPELINE_DEPTH && !(artifact.flagCandidates || []).length;
+    const structuredReport =
+      artifact.sourceKind === "generated" &&
+      /(?:-summary|-profile|-clues|-metadata|-comment|-symbols|-relocations|-needed|-surface|-paths|-capabilities|-gadgets|-toolbox)\.txt$/i.test(
+        artifact.name,
+      );
+    return !structuredReport && artifact.depth < MAX_PIPELINE_DEPTH && !(artifact.flagCandidates || []).length;
+  }
+  if (actionId === "solve-rsa-parameters") {
+    return artifact.depth === 0 && artifact.family === "text";
+  }
+  if (actionId === "analyze-signal-data") {
+    return artifact.depth === 0 && [".vcd", ".csv", ".asc", ".log", ".txt"].includes(artifact.extension);
   }
   if (actionId === "extract-traffic-sessions") {
     return artifact.family === "network" && artifact.depth === 0;
@@ -7194,8 +11998,17 @@ function shouldAutoRun(actionId, artifact) {
   if (actionId === "extract-strings") {
     return artifact.family === "binary" || artifact.family === "network";
   }
+  if (actionId === "extract-model-clues") {
+    return artifact.depth === 0 && MODEL_EXTENSIONS.includes(artifact.extension);
+  }
+  if (actionId === "extract-forensic-container") {
+    return artifact.depth === 0 && ["DISK", "MEMORY"].includes(artifact.badge);
+  }
   if (actionId === "extract-png-text" || actionId === "extract-png-lsb") {
-    return artifact.depth < MAX_PIPELINE_DEPTH;
+    return artifact.depth < MAX_PIPELINE_DEPTH && !/(?:usb-mouse-track|usb-controller-.*-stick)/i.test(artifact.name);
+  }
+  if (actionId === "repair-png-dimensions") {
+    return artifact.badge === "PNG" && artifact.depth === 0;
   }
   return false;
 }
@@ -7261,12 +12074,22 @@ async function buildPipelineArtifacts(rootPaths, outputRoot, options = {}) {
           });
         });
       } catch (error) {
+        const message = error?.message || String(error);
+        if (action.id === "decode-encoded-text" && message.includes("\u6ca1\u6709\u627e\u5230\u53ef\u76f4\u63a5\u89e3\u7801")) {
+          continue;
+        }
+        if (action.id === "extract-strings" && message.includes("\u6ca1\u6709\u63d0\u53d6\u5230\u53ef\u7528 strings")) {
+          continue;
+        }
+        if (action.id === "extract-image-ocr" && message.includes("\u6ca1\u6709\u8bc6\u522b\u5230\u53ef\u7528\u6587\u5b57")) {
+          continue;
+        }
         pipelineErrors.push({
           actionId: action.id,
           actionLabel: action.label,
           sourcePath: artifact.path,
           sourceName: artifact.name,
-          message: error?.message || String(error),
+          message,
           guide: buildFailureGuide(error, action, artifact),
         });
       }
@@ -7293,7 +12116,8 @@ async function analyzeChallenge(payload, outputRoot) {
 
   const collection = collectPaths(payload.artifacts || []);
   const passwordCandidates = buildPasswordCandidates({ title, description, notes, tags }, collection.files);
-  const pipeline = await buildPipelineArtifacts(collection.files, outputRoot, { passwordCandidates });
+  const flagPrefixHints = buildFlagPrefixHints({ title, description, notes, tags });
+  const pipeline = await buildPipelineArtifacts(collection.files, outputRoot, { passwordCandidates, flagPrefixHints });
   const inlineFlags = [
     ...findFlagCandidates(title, "\u6807\u9898"),
     ...findFlagCandidates(description, "\u63cf\u8ff0"),

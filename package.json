@@ -1,18 +1,22 @@
 {
   "name": "ctf-compass-desktop",
-  "version": "0.4.9",
+  "version": "0.9.1",
   "description": "Desktop challenge classification and methodology workbench for lawful CTF analysis.",
   "main": "desktop/main.js",
   "author": "OpenAI Codex",
   "license": "MIT",
   "scripts": {
-    "dev": "electron .",
+    "dev": "vite",
+    "dev:electron": "electron .",
     "dev:launcher": "electron link-launcher/main.js",
+    "build:web": "vite build",
+    "preview:web": "vite preview --host 0.0.0.0 --port 3000",
     "dist": "electron-builder --win nsis",
     "dist:dir": "electron-builder --win dir",
     "dist:zip": "electron-builder --win zip",
     "postdist:zip": "node scripts/prune-release.js",
-    "smoke:analyzer": "node scripts/smoke-analyzer.js"
+    "smoke:analyzer": "node scripts/smoke-analyzer.js",
+    "smoke:web": "node scripts/smoke-web-analyzer.js"
   },
   "build": {
     "appId": "com.ctfcompass.desktop",
@@ -27,6 +31,11 @@
       "README.md",
       "package.json"
     ],
+    "asarUnpack": [
+      "node_modules/@tesseract.js-data/eng/**/*",
+      "node_modules/tesseract.js-core/**/*",
+      "node_modules/tesseract.js/src/worker-script/node/**/*"
+    ],
     "win": {
       "signAndEditExecutable": false,
       "verifyUpdateCodeSignature": false
@@ -39,14 +48,17 @@
     "bwip-js": "^4.9.0",
     "electron": "^37.2.0",
     "electron-builder": "^25.1.8",
-    "qrcode": "^1.5.4"
+    "qrcode": "^1.5.4",
+    "vite": "^8.0.16"
   },
   "dependencies": {
     "@ericblade/quagga2": "^1.12.1",
+    "@tesseract.js-data/eng": "^1.0.0",
     "adm-zip": "^0.5.17",
     "exif-parser": "^0.1.12",
     "jpeg-js": "^0.4.4",
     "jsqr": "^1.4.0",
-    "pngjs": "^7.0.0"
+    "pngjs": "^7.0.0",
+    "tesseract.js": "^7.0.0"
   }
 }

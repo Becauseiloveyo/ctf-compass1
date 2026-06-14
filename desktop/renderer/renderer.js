@@ -1,6 +1,7 @@
 const STRINGS = {
   brandCaption: "\u6311\u6218\u5de5\u4f5c\u53f0",
   navWorkspace: "\u5de5\u4f5c\u53f0",
+  navWeb: "Web 靶机",
   navArtifacts: "\u9644\u4ef6",
   navResults: "\u7ed3\u679c",
   navSettings: "\u8bbe\u7f6e",
@@ -122,6 +123,8 @@ const STRINGS = {
   statusWorkspaceCleared: "\u5f53\u524d\u5de5\u4f5c\u533a\u5df2\u6e05\u7a7a\u3002",
   statusSandboxCleared: "\u6c99\u76d2\u5df2\u6e05\u7406\uff0c\u81ea\u52a8\u751f\u6210\u7684\u9644\u4ef6\u548c\u4e34\u65f6\u5185\u5bb9\u5df2\u79fb\u9664\u3002",
   statusReportExported: "\u5df2\u5bfc\u51fa Markdown \u62a5\u544a\uff1a",
+  statusWebAnalyzing: "正在映射本地 Web 靶机入口、脚本和响应线索...",
+  statusWebDone: "Web 靶机分析完成，结果和报告已写入沙盒。",
   statusErrorPrefix: "\u5206\u6790\u5931\u8d25\uff1a",
   artifactOpen: "\u6253\u5f00\u4f4d\u7f6e",
   artifactRemove: "\u79fb\u9664",
@@ -144,6 +147,10 @@ const VIEW_COPY = {
     kicker: "\u5de5\u4f5c\u53f0",
     title: "\u4ee5\u9644\u4ef6\u4e3a\u4e2d\u5fc3\u7684 CTF \u5de5\u4f5c\u53f0",
   },
+  web: {
+    kicker: "Web 靶机",
+    title: "受限同源抓取与 Web CTF 线索分析",
+  },
   artifacts: {
     kicker: "\u9644\u4ef6",
     title: "\u6587\u4ef6\u8d44\u4ea7\u4e0e\u5206\u7c7b\u7ed3\u679c",
@@ -162,9 +169,11 @@ const state = {
   activeView: "workspace",
   workbenchFamily: "binary",
   theme: localStorage.getItem("ctf-theme") || "light",
+  sidebarCollapsed: localStorage.getItem("ctf-sidebar-collapsed") === "true",
   isBusy: false,
   artifacts: [],
   analysis: null,
+  webAnalysis: null,
   casebook: {
     finalFlag: null,
     summary: "",
@@ -176,18 +185,22 @@ const WORKSPACE_VERSION = 1;
 const EVIDENCE_STATUSES = ["todo", "checking", "confirmed"];
 let persistenceReady = false;
 let saveTimer = null;
+let sidebarHoverTimer = null;
 
 const elements = {
   body: document.body,
+  sidebar: document.querySelector(".sidebar"),
   navItems: Array.from(document.querySelectorAll(".nav-item")),
   views: {
     workspace: document.getElementById("workspace-view"),
+    web: document.getElementById("web-view"),
     artifacts: document.getElementById("artifacts-view"),
     results: document.getElementById("results-view"),
     settings: document.getElementById("settings-view"),
   },
   viewKicker: document.getElementById("view-kicker"),
   viewTitle: document.getElementById("view-title"),
+  sidebarToggle: document.getElementById("sidebar-toggle"),
   appMeta: document.getElementById("app-meta"),
   settingsRuntime: document.getElementById("settings-runtime"),
   themeToggle: document.getElementById("theme-toggle"),
@@ -206,14 +219,19 @@ const elements = {
   pickFilesButton: document.getElementById("pick-files-button"),
   pickFolderButton: document.getElementById("pick-folder-button"),
   runAnalysisButton: document.getElementById("run-analysis-button"),
+  workspaceRunAnalysisButton: document.getElementById("workspace-run-analysis-button"),
   quickFilesButton: document.getElementById("quick-files-button"),
   quickFolderButton: document.getElementById("quick-folder-button"),
   quickPasteButton: document.getElementById("quick-paste-button"),
   quickRunButton: document.getElementById("quick-run-button"),
   artifactDropzone: document.getElementById("artifact-dropzone"),
   artifactCountPill: document.getElementById("artifact-count-pill"),
+  workspaceClueCount: document.getElementById("workspace-clue-count"),
+  workspaceFlagCount: document.getElementById("workspace-flag-count"),
   artifactPreviewList: document.getElementById("artifact-preview-list"),
   discoveryList: document.getElementById("discovery-list"),
+  workspaceFlagList: document.getElementById("workspace-flag-list"),
+  workspaceNextList: document.getElementById("workspace-next-list"),
   artifactDetailList: document.getElementById("artifact-detail-list"),
   summaryCategory: document.getElementById("summary-category"),
   summaryConfidence: document.getElementById("summary-confidence"),
@@ -230,6 +248,23 @@ const elements = {
   toolList: document.getElementById("tool-list"),
   sandboxPath: document.getElementById("sandbox-path"),
   sandboxSize: document.getElementById("sandbox-size"),
+  webTargetInput: document.getElementById("web-target-input"),
+  webAuthorizedCheckbox: document.getElementById("web-authorized-checkbox"),
+  webPublicCheckbox: document.getElementById("web-public-checkbox"),
+  webProbePathsCheckbox: document.getElementById("web-probe-paths-checkbox"),
+  webMaxPagesSelect: document.getElementById("web-max-pages-select"),
+  webMaxDepthSelect: document.getElementById("web-max-depth-select"),
+  webRunButton: document.getElementById("web-run-button"),
+  webOpenReportButton: document.getElementById("web-open-report-button"),
+  webPagesCount: document.getElementById("web-pages-count"),
+  webFindingsCount: document.getElementById("web-findings-count"),
+  webFlagsCount: document.getElementById("web-flags-count"),
+  webErrorsCount: document.getElementById("web-errors-count"),
+  webTargetSummary: document.getElementById("web-target-summary"),
+  webFlagsList: document.getElementById("web-flags-list"),
+  webPagesList: document.getElementById("web-pages-list"),
+  webFindingsList: document.getElementById("web-findings-list"),
+  webNextList: document.getElementById("web-next-list"),
 };
 
 function applyStaticCopy() {
@@ -388,6 +423,9 @@ function setStatus(message, kind = "info") {
 }
 
 function setButtonDisabled(button, disabled, title = "") {
+  if (!button) {
+    return;
+  }
   button.disabled = disabled;
   button.classList.toggle("is-disabled", disabled);
   button.title = title;
@@ -397,11 +435,15 @@ function updateActionAvailability() {
   const canAnalyze = workspaceHasAnalyzableInput() && !state.isBusy;
   const analyzeTitle = canAnalyze ? "" : STRINGS.runDisabledHint;
   setButtonDisabled(elements.runAnalysisButton, !canAnalyze, analyzeTitle);
+  setButtonDisabled(elements.workspaceRunAnalysisButton, !canAnalyze, analyzeTitle);
   setButtonDisabled(elements.quickRunButton, !canAnalyze, analyzeTitle);
 
   const canExport = Boolean(state.analysis) && !state.isBusy;
   setButtonDisabled(elements.exportReportButton, !canExport, canExport ? "" : "\u5148\u8fd0\u884c\u4e00\u6b21\u5206\u6790\u3002");
   setButtonDisabled(elements.settingsExportReportButton, !canExport, canExport ? "" : "\u5148\u8fd0\u884c\u4e00\u6b21\u5206\u6790\u3002");
+  const canRunWeb = Boolean(elements.webTargetInput?.value.trim() && elements.webAuthorizedCheckbox?.checked && !state.isBusy);
+  setButtonDisabled(elements.webRunButton, !canRunWeb, canRunWeb ? "" : "填写靶机地址并确认授权后开始。");
+  setButtonDisabled(elements.webOpenReportButton, !state.webAnalysis?.reportPath || state.isBusy);
 
   [
     elements.pickFilesButton,
@@ -410,7 +452,7 @@ function updateActionAvailability() {
     elements.quickFolderButton,
     elements.artifactDropzone,
     elements.clearSandboxButton,
-  ].forEach((button) => {
+  ].filter(Boolean).forEach((button) => {
     setButtonDisabled(button, state.isBusy);
   });
   elements.body.classList.toggle("is-busy", state.isBusy);
@@ -437,6 +479,9 @@ function renderNavBadges() {
     }
     if (view === "results" && state.analysis) {
       value = String(state.analysis.flagCandidates?.length || 0);
+    }
+    if (view === "web" && state.webAnalysis) {
+      value = String(state.webAnalysis.flagCandidates?.length || state.webAnalysis.pages?.length || 0);
     }
     badge.textContent = value;
     badge.hidden = !value;
@@ -475,6 +520,62 @@ function setTheme(theme) {
 
 function toggleTheme() {
   setTheme(state.theme === "light" ? "dark" : "light");
+}
+
+function setSidebarCollapsed(collapsed) {
+  state.sidebarCollapsed = collapsed;
+  elements.body.classList.toggle("sidebar-collapsed", collapsed);
+  elements.body.classList.remove("sidebar-hover-expanded");
+  localStorage.setItem("ctf-sidebar-collapsed", String(collapsed));
+  if (elements.sidebarToggle) {
+    elements.sidebarToggle.setAttribute("aria-expanded", String(!collapsed));
+    elements.sidebarToggle.setAttribute("aria-label", collapsed ? "展开侧边栏" : "折叠侧边栏");
+    elements.sidebarToggle.title = collapsed ? "展开侧边栏" : "折叠侧边栏";
+  }
+}
+
+function toggleSidebar() {
+  setSidebarCollapsed(!state.sidebarCollapsed);
+}
+
+function bindSidebarHover() {
+  if (!elements.sidebar) {
+    return;
+  }
+
+  function scheduleTemporaryExpansion(expanded, delay) {
+    window.clearTimeout(sidebarHoverTimer);
+    sidebarHoverTimer = window.setTimeout(() => {
+      if (!state.sidebarCollapsed) {
+        elements.body.classList.remove("sidebar-hover-expanded");
+        return;
+      }
+      elements.body.classList.toggle("sidebar-hover-expanded", expanded);
+    }, delay);
+  }
+
+  elements.sidebar.addEventListener("pointerenter", () => {
+    scheduleTemporaryExpansion(true, 90);
+  });
+
+  elements.sidebar.addEventListener("pointerleave", () => {
+    scheduleTemporaryExpansion(false, 180);
+  });
+
+  elements.sidebar.addEventListener("focusin", () => {
+    window.clearTimeout(sidebarHoverTimer);
+    if (state.sidebarCollapsed) {
+      elements.body.classList.add("sidebar-hover-expanded");
+    }
+  });
+
+  elements.sidebar.addEventListener("focusout", () => {
+    window.setTimeout(() => {
+      if (state.sidebarCollapsed && !elements.sidebar.contains(document.activeElement)) {
+        elements.body.classList.remove("sidebar-hover-expanded");
+      }
+    }, 0);
+  });
 }
 
 function uniqArtifacts(items) {
@@ -581,6 +682,50 @@ function renderDiscoveryPanel() {
     box.textContent = item;
     elements.discoveryList.append(box);
   });
+}
+
+function renderWorkspaceStatus() {
+  const quickFindings = state.analysis
+    ? state.analysis.quickFindings.concat(state.analysis.warnings || [])
+    : inferPreviewFindings();
+  const flagCandidates = state.analysis?.flagCandidates || [];
+  const nextSteps = state.analysis?.solver?.nextActions?.length
+    ? state.analysis.solver.nextActions
+    : state.analysis?.classification?.nextMoves || [];
+
+  if (elements.workspaceClueCount) {
+    elements.workspaceClueCount.textContent = String(quickFindings.length);
+  }
+  if (elements.workspaceFlagCount) {
+    elements.workspaceFlagCount.textContent = String(flagCandidates.length);
+  }
+
+  if (elements.workspaceFlagList) {
+    elements.workspaceFlagList.innerHTML = "";
+    if (!flagCandidates.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty-copy";
+      empty.textContent = STRINGS.emptyFlags;
+      elements.workspaceFlagList.append(empty);
+    } else {
+      flagCandidates.slice(0, 4).forEach((candidate) => {
+        const item = document.createElement("div");
+        item.className = "stack-item flag-item compact-flag-item";
+        item.innerHTML = `<strong>${escapeHtml(candidate.value)}</strong><p>${escapeHtml(candidate.source || "")}</p>`;
+        elements.workspaceFlagList.append(item);
+      });
+    }
+  }
+
+  if (elements.workspaceNextList) {
+    elements.workspaceNextList.innerHTML = "";
+    const items = nextSteps.length ? nextSteps.slice(0, 4) : [STRINGS.runDisabledHint];
+    items.forEach((step) => {
+      const item = document.createElement("li");
+      item.textContent = step;
+      elements.workspaceNextList.append(item);
+    });
+  }
 }
 
 function sortArtifactsForDisplay(items) {
@@ -1462,10 +1607,100 @@ function renderArtifactDetails() {
   });
 }
 
+function renderWebAnalysis() {
+  const result = state.webAnalysis;
+  elements.webPagesCount.textContent = String(result?.pages?.length || 0);
+  elements.webFindingsCount.textContent = String(result?.findings?.length || 0);
+  elements.webFlagsCount.textContent = String(result?.flagCandidates?.length || 0);
+  elements.webErrorsCount.textContent = String(result?.errors?.length || 0);
+  elements.webTargetSummary.textContent = result
+    ? `${result.origin} · ${result.resolvedAddresses.join(" / ")} · ${result.requestCount} 请求 · ${result.durationMs} ms`
+    : "尚未分析目标。";
+
+  elements.webFlagsList.innerHTML = "";
+  if (!result?.flagCandidates?.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-copy";
+    empty.textContent = "尚未发现直接 flag。";
+    elements.webFlagsList.append(empty);
+  } else {
+    result.flagCandidates.slice(0, 12).forEach((candidate) => {
+      const item = document.createElement("div");
+      item.className = "stack-item flag-item compact-flag-item";
+      item.innerHTML = `<strong>${escapeHtml(candidate.value)}</strong><p>${escapeHtml(candidate.source || "")}</p>`;
+      elements.webFlagsList.append(item);
+    });
+  }
+
+  elements.webPagesList.innerHTML = "";
+  const webEntries = [
+    ...(result?.pages || []).map((page) => ({ ...page, kind: "page" })),
+    ...(result?.errors || []).map((error) => ({ ...error, kind: "error", status: "ERR", contentType: error.message, bytes: 0 })),
+  ];
+  if (!webEntries.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-copy";
+    empty.textContent = "运行后会显示同源页面、脚本与路径。";
+    elements.webPagesList.append(empty);
+  } else {
+    webEntries.slice(0, 60).forEach((page) => {
+      const item = document.createElement("div");
+      item.className = `web-page-item${page.kind === "error" ? " is-error" : ""}`;
+      const status = document.createElement("span");
+      status.className = "web-status-code";
+      status.textContent = String(page.status);
+      const copy = document.createElement("div");
+      copy.className = "web-page-copy";
+      const title = document.createElement("strong");
+      title.textContent = page.url;
+      title.title = page.url;
+      const clues = [
+        page.contentType || "unknown",
+        `${page.bytes} B`,
+        page.comments?.length ? `${page.comments.length} 注释` : "",
+        page.forms?.length ? `${page.forms.length} 表单` : "",
+        page.sourceMaps?.length ? `${page.sourceMaps.length} source map` : "",
+        page.routeCandidates?.length ? `${page.routeCandidates.length} 路由` : "",
+      ].filter(Boolean);
+      const meta = document.createElement("small");
+      meta.textContent = clues.join(" · ");
+      copy.append(title, meta);
+      item.append(status, copy);
+      elements.webPagesList.append(item);
+    });
+  }
+
+  elements.webFindingsList.innerHTML = "";
+  const findings = result?.findings || [];
+  if (!findings.length) {
+    const empty = document.createElement("p");
+    empty.className = "empty-copy";
+    empty.textContent = "尚无高价值线索。";
+    elements.webFindingsList.append(empty);
+  } else {
+    findings.slice(0, 60).forEach((finding) => {
+      const item = document.createElement("div");
+      item.className = "stack-item";
+      item.textContent = finding;
+      elements.webFindingsList.append(item);
+    });
+  }
+
+  elements.webNextList.innerHTML = "";
+  const nextSteps = result?.nextSteps?.length ? result.nextSteps : ["运行后会列出需要在浏览器中手动验证的高价值入口。"];
+  nextSteps.forEach((step) => {
+    const item = document.createElement("li");
+    item.textContent = step;
+    elements.webNextList.append(item);
+  });
+}
+
 function renderAll() {
   renderViewHeader();
   renderArtifactPreview();
   renderDiscoveryPanel();
+  renderWorkspaceStatus();
+  renderWebAnalysis();
   renderResults();
   renderArtifactDetails();
   updateActionAvailability();
@@ -1512,6 +1747,42 @@ async function runAnalysis(options = {}) {
     setStatus(`${STRINGS.statusErrorPrefix} ${error.message}`, "error");
   } finally {
     setBusy(false);
+  }
+}
+
+async function runWebTargetAnalysis() {
+  if (state.isBusy) return;
+  const url = elements.webTargetInput.value.trim();
+  if (!url || !elements.webAuthorizedCheckbox.checked) {
+    setStatus("填写靶机地址并确认授权后开始。", "error");
+    return;
+  }
+  setBusy(true);
+  try {
+    setStatus(STRINGS.statusWebAnalyzing);
+    state.webAnalysis = await window.ctfCompass.analyzeWebTarget({
+      url,
+      authorized: true,
+      allowPublic: elements.webPublicCheckbox.checked,
+      probeCommonPaths: elements.webProbePathsCheckbox.checked,
+      maxPages: Number(elements.webMaxPagesSelect.value),
+      maxDepth: Number(elements.webMaxDepthSelect.value),
+    });
+    elements.webTargetInput.value = state.webAnalysis.target;
+    renderAll();
+    switchView("web");
+    await refreshSandboxInfo();
+    setStatus(STRINGS.statusWebDone);
+  } catch (error) {
+    setStatus(`${STRINGS.statusErrorPrefix} ${error.message}`, "error");
+  } finally {
+    setBusy(false);
+  }
+}
+
+async function openWebReport() {
+  if (state.webAnalysis?.reportPath) {
+    await window.ctfCompass.revealArtifact(state.webAnalysis.reportPath);
   }
 }
 
@@ -1669,12 +1940,16 @@ async function clearWorkspace() {
     persistenceReady = false;
     state.artifacts = [];
     state.analysis = null;
+    state.webAnalysis = null;
     state.casebook = createEmptyCasebook();
     elements.titleInput.value = "";
     elements.tagsInput.value = "";
     elements.descriptionInput.value = "";
     elements.notesInput.value = "";
     elements.caseSummaryInput.value = "";
+    elements.webTargetInput.value = "";
+    elements.webAuthorizedCheckbox.checked = false;
+    elements.webPublicCheckbox.checked = false;
     await window.ctfCompass.clearWorkspace();
     renderAll();
     switchView("workspace");
@@ -1693,6 +1968,7 @@ async function hydrateWorkspace() {
     persistenceReady = false;
     state.artifacts = [];
     state.analysis = null;
+    state.webAnalysis = null;
     state.casebook = createEmptyCasebook();
     state.activeView = "workspace";
     state.workbenchFamily = "binary";
@@ -1701,6 +1977,8 @@ async function hydrateWorkspace() {
     elements.descriptionInput.value = "";
     elements.notesInput.value = "";
     elements.caseSummaryInput.value = "";
+    elements.webTargetInput.value = "";
+    elements.webAuthorizedCheckbox.checked = false;
     renderAll();
     switchView("workspace");
     persistenceReady = true;
@@ -1765,30 +2043,41 @@ async function hydrateMeta() {
   await refreshSandboxInfo();
 }
 
+function bindClick(element, handler) {
+  if (element) {
+    element.addEventListener("click", handler);
+  }
+}
+
 elements.navItems.forEach((button) => {
   button.addEventListener("click", () => {
     switchView(button.dataset.view);
   });
 });
 
-elements.themeToggle.addEventListener("click", toggleTheme);
-elements.settingsThemeToggle.addEventListener("click", toggleTheme);
-elements.exportReportButton.addEventListener("click", exportReport);
-elements.settingsExportReportButton.addEventListener("click", exportReport);
-elements.clearWorkspaceButton.addEventListener("click", clearWorkspace);
-elements.openSandboxButton.addEventListener("click", openSandboxFolder);
-elements.clearSandboxButton.addEventListener("click", clearSandboxData);
-elements.pickFilesButton.addEventListener("click", () => appendPreparedArtifacts(window.ctfCompass.pickFiles()));
-elements.pickFolderButton.addEventListener("click", () => appendPreparedArtifacts(window.ctfCompass.pickFolder()));
-elements.quickFilesButton.addEventListener("click", () => appendPreparedArtifacts(window.ctfCompass.pickFiles()));
-elements.quickFolderButton.addEventListener("click", () => appendPreparedArtifacts(window.ctfCompass.pickFolder()));
-elements.quickPasteButton.addEventListener("click", () => {
+bindClick(elements.sidebarToggle, toggleSidebar);
+bindSidebarHover();
+bindClick(elements.themeToggle, toggleTheme);
+bindClick(elements.settingsThemeToggle, toggleTheme);
+bindClick(elements.exportReportButton, exportReport);
+bindClick(elements.settingsExportReportButton, exportReport);
+bindClick(elements.clearWorkspaceButton, clearWorkspace);
+bindClick(elements.openSandboxButton, openSandboxFolder);
+bindClick(elements.clearSandboxButton, clearSandboxData);
+bindClick(elements.pickFilesButton, () => appendPreparedArtifacts(window.ctfCompass.pickFiles()));
+bindClick(elements.pickFolderButton, () => appendPreparedArtifacts(window.ctfCompass.pickFolder()));
+bindClick(elements.quickFilesButton, () => appendPreparedArtifacts(window.ctfCompass.pickFiles()));
+bindClick(elements.quickFolderButton, () => appendPreparedArtifacts(window.ctfCompass.pickFolder()));
+bindClick(elements.quickPasteButton, () => {
   elements.descriptionInput.focus();
   setStatus(STRINGS.statusFocusDescription);
 });
-elements.runAnalysisButton.addEventListener("click", runAnalysis);
-elements.quickRunButton.addEventListener("click", runAnalysis);
-elements.artifactDropzone.addEventListener("click", () => appendPreparedArtifacts(window.ctfCompass.pickFiles()));
+bindClick(elements.runAnalysisButton, runAnalysis);
+bindClick(elements.workspaceRunAnalysisButton, runAnalysis);
+bindClick(elements.quickRunButton, runAnalysis);
+bindClick(elements.artifactDropzone, () => appendPreparedArtifacts(window.ctfCompass.pickFiles()));
+bindClick(elements.webRunButton, runWebTargetAnalysis);
+bindClick(elements.webOpenReportButton, openWebReport);
 
 [elements.titleInput, elements.tagsInput, elements.descriptionInput, elements.notesInput, elements.caseSummaryInput].forEach((input) => {
   input.addEventListener("input", () => {
@@ -1796,6 +2085,19 @@ elements.artifactDropzone.addEventListener("click", () => appendPreparedArtifact
     updateActionAvailability();
     scheduleWorkspaceSave();
   });
+});
+
+[elements.webTargetInput, elements.webAuthorizedCheckbox, elements.webPublicCheckbox, elements.webProbePathsCheckbox, elements.webMaxPagesSelect, elements.webMaxDepthSelect].forEach(
+  (input) => {
+    input.addEventListener("input", updateActionAvailability);
+    input.addEventListener("change", updateActionAvailability);
+  },
+);
+
+elements.webTargetInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter" && !elements.webRunButton.disabled) {
+    runWebTargetAnalysis();
+  }
 });
 
 elements.artifactDropzone.addEventListener("dragover", (event) => {
@@ -1819,6 +2121,7 @@ elements.artifactDropzone.addEventListener("drop", (event) => {
 });
 
 setTheme(state.theme);
+setSidebarCollapsed(state.sidebarCollapsed);
 applyStaticCopy();
 renderAll();
 setStatus(STRINGS.statusReady);
