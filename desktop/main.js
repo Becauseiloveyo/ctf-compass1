@@ -1,4 +1,5 @@
 const fs = require("fs");
+const https = require("https");
 const { app, BrowserWindow, dialog, ipcMain, screen, shell } = require("electron");
 const path = require("path");
 const { analyzeChallenge, prepareArtifactsFromEntries, runArtifactAction } = require("./analyzer");
@@ -7,6 +8,7 @@ const ctf2Connector = require("./ctf2-connector");
 
 const isDev = !app.isPackaged;
 const SANDBOX_DIR_NAME = "sandbox";
+const UPDATE_RELEASE_API = "https://api.github.com/repos/Becauseiloveyo/ctf-compass1/releases/latest";
 
 function getInitialWindowBounds() {
   const { width, height } = screen.getPrimaryDisplay().workAreaSize;
@@ -141,6 +143,76 @@ function getSandboxInfo() {
   };
 }
 
+function fetchJson(url) {
+  return new Promise((resolve, reject) => {
+    const request = https.get(
+      url,
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          "User-Agent": "CTF-Compass-Updater",
+        },
+        timeout: 8000,
+      },
+      (response) => {
+        const chunks = [];
+        response.on("data", (chunk) => chunks.push(chunk));
+        response.on("end", () => {
+          const body = Buffer.concat(chunks).toString("utf8");
+          let payload = null;
+          try {
+            payload = body ? JSON.parse(body) : null;
+          } catch (_error) {
+            payload = { message: body };
+          }
+          if (response.statusCode < 200 || response.statusCode >= 300) {
+            reject(new Error(payload?.message || `GitHub release check failed (${response.statusCode})`));
+            return;
+          }
+          resolve(payload);
+        });
+      },
+    );
+    request.on("timeout", () => {
+      request.destroy(new Error("检查更新超时。"));
+    });
+    request.on("error", reject);
+  });
+}
+
+function versionParts(value) {
+  return String(value || "")
+    .replace(/^v/i, "")
+    .split(/[.-]/)
+    .slice(0, 3)
+    .map((part) => Number.parseInt(part, 10) || 0);
+}
+
+function compareVersions(left, right) {
+  const a = versionParts(left);
+  const b = versionParts(right);
+  for (let index = 0; index < 3; index += 1) {
+    if ((a[index] || 0) > (b[index] || 0)) return 1;
+    if ((a[index] || 0) < (b[index] || 0)) return -1;
+  }
+  return 0;
+}
+
+async function checkForUpdates() {
+  const currentVersion = app.getVersion();
+  const release = await fetchJson(UPDATE_RELEASE_API);
+  const latestVersion = String(release.tag_name || release.name || "").replace(/^v/i, "");
+  return {
+    currentVersion,
+    latestVersion,
+    hasUpdate: compareVersions(latestVersion, currentVersion) > 0,
+    name: release.name || release.tag_name || "",
+    url: release.html_url || "https://github.com/Becauseiloveyo/ctf-compass1/releases/latest",
+    publishedAt: release.published_at || "",
+    assetCount: Array.isArray(release.assets) ? release.assets.length : 0,
+  };
+}
+
 async function selectFiles() {
   const result = await dialog.showOpenDialog({
     title: "Select challenge files",
@@ -193,6 +265,15 @@ ipcMain.handle("reveal-artifact", async (_event, targetPath) => {
     shell.showItemInFolder(targetPath);
   }
 });
+ipcMain.handle("open-external", async (_event, url) => {
+  const target = String(url || "");
+  if (!/^https:\/\/github\.com\/Becauseiloveyo\/ctf-compass1\/releases\/?/i.test(target)) {
+    throw new Error("只允许打开 CTF Compass 的 GitHub Releases 页面。");
+  }
+  await shell.openExternal(target);
+  return { opened: true };
+});
+ipcMain.handle("check-for-updates", async () => checkForUpdates());
 ipcMain.handle("load-workspace", async () => {
   ensureSandboxLayout();
   cleanupLegacyRuntimeData();
