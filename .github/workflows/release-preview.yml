@@ -32,10 +32,10 @@ jobs:
         shell: pwsh
         run: Get-ChildItem -Recurse release | Select-Object FullName, Length
 
-      - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+      - name: Publish GitHub Release
+        uses: ncipollo/release-action@v1
         with:
-          tag_name: v0.9.1-ctf2-preview-${{ github.run_number }}
+          tag: v0.9.1-ctf2-preview-${{ github.run_number }}
           name: CTF Compass v0.9.1 CTF2 Preview ${{ github.run_number }}
           body: |
             CTF2 connector preview build.
@@ -49,6 +49,7 @@ jobs:
             Notes:
             - This is a preview release.
             - Real CTF2 backend sync/download/start-target integration is not fully wired yet.
-          files: release/*.zip
-          draft: false
+          artifacts: release/*.zip
           prerelease: true
+          allowUpdates: true
+          artifactErrorsFailBuild: true
