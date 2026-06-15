@@ -35,17 +35,17 @@ jobs:
       - name: Publish preview release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.9.1-ui-preview-2
-          name: CTF Compass UI Preview 2
+          tag_name: v0.9.1-ui-preview-3
+          name: CTF Compass UI Preview 3
           make_latest: false
           body: |
             UI preview build for review.
 
-            This build includes the compact layout fix after feedback:
-            - Smaller tool-style title.
-            - Main workspace split into task and attachment columns.
-            - Hidden sidebar hamburger.
-            - Kept smooth hover sidebar expansion.
-            - Softer light-first visual style.
+            This build replaces the oversized hero with a compact workspace:
+            - Header title shortened to 工作区.
+            - Main card title replaced with 开始解题.
+            - Attachment area is the primary panel.
+            - Sidebar hamburger is hidden.
+            - Hover sidebar expansion is retained.
           files: release/CTF-Compass-*-win-x64.zip
           fail_on_unmatched_files: true
