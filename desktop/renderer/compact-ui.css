@@ -11,6 +11,160 @@
   display: none !important;
 }
 
+/* Sidebar final polish: stable rail, no hover dot, bottom theme switch. */
+.sidebar {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100vh !important;
+}
+
+.sidebar-state-dot {
+  display: none !important;
+}
+
+.sidebar-top {
+  flex: 1 1 auto !important;
+  min-height: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 14px !important;
+}
+
+.nav {
+  flex: 0 0 auto !important;
+  height: auto !important;
+  justify-content: flex-start !important;
+  gap: 10px !important;
+}
+
+.sidebar-footer {
+  display: flex !important;
+  flex: 0 0 auto !important;
+  margin-top: auto !important;
+  padding: 12px 16px 18px !important;
+  border-top: 0 !important;
+}
+
+.sidebar-footer .meta-row {
+  display: none !important;
+}
+
+.sidebar-footer .sidebar-row:first-child {
+  width: 100% !important;
+  min-height: 54px !important;
+  padding: 10px 12px !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 18px !important;
+  background: var(--surface) !important;
+  box-shadow: none !important;
+}
+
+.sidebar-footer .sidebar-label,
+.sidebar-footer .sidebar-note {
+  margin: 0 !important;
+}
+
+body.sidebar-collapsed .sidebar-footer {
+  justify-content: center !important;
+  padding: 12px 0 20px !important;
+}
+
+body.sidebar-collapsed .sidebar-footer .sidebar-row:first-child {
+  width: 56px !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  display: grid !important;
+  place-items: center !important;
+  padding: 0 !important;
+  border-radius: 18px !important;
+  background: var(--surface-subtle) !important;
+}
+
+body.sidebar-collapsed .sidebar-footer .sidebar-row:first-child > div {
+  display: none !important;
+}
+
+.theme-toggle {
+  display: grid !important;
+  place-items: center !important;
+  width: 42px !important;
+  height: 42px !important;
+  border-radius: 14px !important;
+  box-shadow: none !important;
+}
+
+body.sidebar-collapsed .theme-toggle {
+  width: 44px !important;
+  height: 44px !important;
+  border: 0 !important;
+  background: transparent !important;
+}
+
+body.sidebar-collapsed .nav-group {
+  gap: 12px !important;
+}
+
+body.sidebar-collapsed .nav-item {
+  width: 58px !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 18px !important;
+  border: 1px solid transparent !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body.sidebar-collapsed .nav-item.active {
+  border-color: color-mix(in srgb, var(--accent) 34%, var(--line)) !important;
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+}
+
+body.sidebar-collapsed .nav-item::before,
+body.sidebar-collapsed .nav-item::after,
+body.sidebar-collapsed .brand::before,
+body.sidebar-collapsed .brand::after {
+  display: none !important;
+  content: none !important;
+}
+
+body.sidebar-collapsed .nav-icon {
+  width: 24px !important;
+  height: 24px !important;
+  margin: 0 !important;
+}
+
+body.sidebar-collapsed .brand {
+  width: 58px !important;
+  height: 58px !important;
+  min-height: 58px !important;
+  margin: 0 auto !important;
+  padding: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 20px !important;
+  background: var(--surface-subtle) !important;
+  border: 1px solid var(--line) !important;
+}
+
+body.sidebar-collapsed .brand-mark {
+  width: 36px !important;
+  height: 36px !important;
+}
+
+body.sidebar-collapsed.sidebar-hover-expanded {
+  --sidebar-width: 88px !important;
+}
+
+body.sidebar-collapsed.sidebar-hover-expanded .sidebar,
+body.sidebar-collapsed.sidebar-hover-expanded .shell {
+  transition: none !important;
+}
+
 #web-view .web-layout {
   grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
   gap: 14px;
