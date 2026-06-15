@@ -35,16 +35,17 @@ jobs:
       - name: Publish preview release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.9.1-ui-preview
-          name: CTF Compass UI Preview
+          tag_name: v0.9.1-ui-preview-2
+          name: CTF Compass UI Preview 2
           make_latest: false
           body: |
             UI preview build for review.
 
-            Changes:
-            - Light-first interface refresh.
-            - Softer dark mode.
-            - Smoother sidebar hover expansion.
-            - Cleaner typography and spacing.
+            This build includes the compact layout fix after feedback:
+            - Smaller tool-style title.
+            - Main workspace split into task and attachment columns.
+            - Hidden sidebar hamburger.
+            - Kept smooth hover sidebar expansion.
+            - Softer light-first visual style.
           files: release/CTF-Compass-*-win-x64.zip
           fail_on_unmatched_files: true
