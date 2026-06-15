@@ -1,5 +1,14 @@
 (function () {
+  installCompactStylesheet();
   window.setTimeout(installCtf2SettingsCard, 0);
+
+  function installCompactStylesheet() {
+    if (document.querySelector('link[href="./compact-ui.css"]')) return;
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "./compact-ui.css";
+    document.head.append(link);
+  }
 
   function installCtf2SettingsCard() {
     const list = document.querySelector("#settings-view .settings-list");
