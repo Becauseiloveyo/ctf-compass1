@@ -26,6 +26,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Smoke test desktop shell
+        run: npm run smoke:desktop
+
+      - name: Smoke test analyzers
+        run: |
+          npm run smoke:analyzer
+          npm run smoke:web
+
       - name: Build Windows ZIP
         run: npm run dist:zip
 
@@ -51,10 +59,10 @@ jobs:
             Includes:
             - CTF2 challenge browser and diagnostic panel.
             - CTF2 browser-token login workflow.
-            - CTF2 import into the real workspace flow.
-            - Manual sidebar toggle restored.
-            - Simplified workspace, settings, and CTF2 pages.
-            - Adaptive window size and fixed main-content scrolling.
+            - CTF2 import into the real workspace flow and import history.
+            - CTF2 settings management for cache and download directory.
+            - Simplified Web, results, workspace, settings, and CTF2 pages.
+            - Desktop smoke tests before publishing.
 
             Notes:
             - CTF2 target start and flag submission still require manual confirmation.
