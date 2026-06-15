@@ -1,130 +1,109 @@
 # CTF Compass
 
-CTF Compass is a safe, extensible desktop app for lawful CTF practice. It is designed around a file-first workflow: challenge statements, images, text files, archives, binaries, and traffic captures are treated as first-class inputs instead of optional notes.
+CTF Compass 是一个本地优先的 CTF 桌面工作台。它把题面、附件、Web 靶机、CTF2 题库导入、自动分析、flag 候选和报告导出放在同一个应用里。
 
-## Scope
+它只面向合法 CTF / 本地靶机 / 已授权比赛靶机，不用于真实未授权目标。
 
-This project is intentionally limited to legitimate CTF training workflows:
+## 下载
 
-- classify challenge types from metadata, notes, and attached artifacts
-- extract likely flag candidates from text, ASCII / UTF-16 strings, recursive encoded content, and CJK codepoint byte projection
-- automatically unpack ZIP, GZIP, TAR, and TGZ content and continue recursive analysis
-- automatically decode base64, base58, base91, hex, base32, ascii85/Z85, URL-encoded, quoted-printable, UUEncode, binary/decimal byte streams, escaped byte text, DTMF combined-frequency streams, phone multitap text, A1Z26, NATO phonetic words, DNA 2-bit streams, single-byte XOR, ROT/Caesar, Affine, Rail Fence, Morse, Polybius, Bacon, Brainfuck/Ook, zero-width text, whitespace stego, Unicode tag text, and compressed text layers when they produce useful local results
-- automatically solve common local RSA parameter weaknesses from text attachments, including known `p/q/phi/d`, leaked-private-exponent factor recovery, shared-prime and common-modulus attacks, and exact low-public-exponent roots
-- automatically extract solvable image clues such as bundled offline OCR, appended payloads, fixed-block interleaved files, PNG text chunks, PNG/BMP low-bit-plane candidates, GIF comment/application/plain-text extensions, GIF image-descriptor bitstreams, and JPEG COM / XMP / APP segment payloads
-- automatically inspect MP4/ISO-BMFF top-level boxes and chunk-offset tables, then repair hidden trailing tracks and unsorted `stco`/`co64` tables into derived playable files
-- automatically decode QR and 1D barcode payloads from local images and export RGB / luminance / edge / JPEG-block visualization views for image-based challenges
-- automatically detect modified PNG IHDR dimensions from IDAT scanline structure and generate repaired dimension candidates
-- automatically summarize local traffic captures, extracting HTTP requests, DNS names, TLS SNI, cookies/tokens, device-separated USB HID keyboard text, USB mouse tracks, Xbox-style controller state and stick views, exported HTTP objects, directional TCP/UDP streams, ICMP payload channels, DNS label streams, and IPv4 ID/TTL covert-channel candidates
-- automatically identify MBR/GPT disk images, common FAT/NTFS/ext/XFS file systems, export bounded small partitions, and extract process/command/URL/credential indicators from Windows minidumps and raw memory images
-- automatically parse VCD logic-analyzer captures, CAN/candump/ASC logs, and binary logic CSV files, trying SPI clock edges, UART 8N1 timing, I2C ACK-framed bytes, arbitration-ID payload aggregation, bit orders, gate expressions, bit reversal, and single-byte XOR
-- safely inspect ONNX, Safetensors, Pickle/Joblib, and checkpoint-style model attachments for metadata, tensors, operators, prompt strings, and unsafe deserialization indicators without executing model content
-- automatically extract PDF metadata, XMP packets, readable Flate streams, and OOXML/Office package contents for recursive local analysis
-- automatically inspect WAV metadata, PCM LSB candidates, tone / morse hints, leading-alphabet tone maps, and waveform / spectrogram views for audio-based local challenges
-- automatically inspect ELF / PE / APK attachments, extracting headers, sections, imports / exports, symbol / relocation summaries, interpreter / shared-library hints, ELF roles, GNU Build IDs and GLIBC versions, checksec-lite protections, classic seccomp-BPF syscall policies, ELF core-dump notes/registers/mappings, risky Pwn imports, I/O/network/heap/sandbox profiles, prioritized Pwn paths, short x86/x64 ROP gadget candidates, lightweight AArch64/ARM/MIPS/RISC-V return and syscall gadgets, manifest strings, DEX method indexes, Android string-pool resources, and unpacked package contents for recursive local analysis
-- map authorized Web CTF targets from IP, domain, host:port, or full URL inputs with bounded same-origin GET requests, keeping public targets behind an explicit authorization option and extracting routes, scripts, source maps, comments, response headers, cookies, forms, error clues, and direct flag candidates
-- automatically save same-origin Web downloads and feed archives, images, captures, binaries, and other responses into the existing recursive local solver
-- run a bundled local toolbox on each root artifact, covering strings-lite, binwalk-lite, ciphey-lite, zsteg-lite, tshark-lite, and rabin2/exif-lite style checks without external downloads
-- detect local professional CTF tools on PATH and auto-run safe adapters instead of showing placeholder guidance
-- run installed tool adapters for ExifTool, binwalk, zsteg, TShark, Ciphey, rabin2, jadx, and apktool, then import generated output back into the recursive solver
-- show missing tool status and installation hints per artifact so the user knows exactly why a deeper action is unavailable
-- produce a solver status: solved, partially solved, or blocked, with the highest-confidence flag candidate and concrete next action
-- collapse extraction steps in the UI and attach a task-specific recovery guide to each failed automatic action
-- start each launch with a fresh empty workspace so previous attachments and challenge text are not restored automatically
-- isolate generated files, temporary sessions, future portable tool downloads, and local helper assets under one sandbox directory that can be opened or cleared from Settings
-- export Markdown investigation reports that include classification, pipeline output, final flag, and artifact-level notebook entries
-- provide dedicated desktop workbench panes for binary / traffic / image / audio families instead of showing everything in one generic result list
-- surface solving checklists and methodology guides
-- help organize evidence, observations, and likely next steps in one desktop workspace
+到 GitHub Releases 下载最新版：
 
-This project does **not** target real-world systems and should not be used for unauthorized activity.
+```text
+CTF Compass v0.9.2
+CTF-Compass-0.9.2-win-x64.zip
+```
 
-## Current Capability Areas
+如果 Release 资产暂时不可见，可以到最新 Actions run 底部下载 artifact：
 
-- `crypto`: recursive classical encoding/cipher recovery plus common deterministic RSA parameter attacks and plaintext extraction
-- `web`: authorized local/private/public-CTF-target crawling, flexible address normalization, robots/sitemap/source-map discovery, response clue extraction, and downloaded-artifact recursion
-- `reverse`: ELF / PE / APK structure extraction, strings/import/export/symbol triage, and flow hints
-- `pwn`: ELF checksec-lite, risky import/function surface, classic seccomp-BPF recovery, core-dump crash-state summaries, local/network I/O and seccomp/alarm/heap profiles, writable/executable/RWX/staging memory surfaces, interesting menu/format/shell strings, prioritized ret2win/overflow/format-string/GOT/ORW/ROP hypotheses, x86/x64 ROP candidates plus lightweight AArch64/ARM/MIPS/RISC-V gadget scans, argument-control/syscall/stack-pivot capability summaries, loader/shared-library clues, and protection-oriented next steps
-- `forensic`: pcap/pcapng stream reconstruction, ICMP/DNS/IP covert-channel candidates, USB HID reconstruction, MBR/GPT and file-system identification, minidump/raw-memory indicator recovery, archive recursion, document extraction, and hidden-artifact oriented workflow hints
-- `misc`: offline image OCR, image/GIF/video stego, MP4 container repair, VCD/SPI/UART/I2C, CAN-log and logic-CSV recovery, and mixed-artifact triage with local auto-processing where deterministic
+```text
+CTF-Compass-v0.9.2-windows
+```
 
-## Tool-Backed Workflow
+## 主要功能
 
-CTF Compass uses a two-layer workflow:
+- 本地附件分析：文本、图片、压缩包、ELF/PE/APK、pcap/pcapng、PDF/Office、WAV、MP4、磁盘镜像、内存转储等。
+- 递归处理：自动解包、提取字符串、识别编码层、扫描常见 flag 样式和派生文件。
+- Web 靶机分析：仅限已授权目标，默认同源 GET、限量扫描，不提交表单，不自动攻击。
+- CTF2 连接器：浏览 BUUCTF 公开题库、诊断连接、导入附件、同步到工作台并自动求解。
+- 证据与报告：保存人工观察、候选 flag、分析过程，并导出 Markdown 报告。
+- 沙盒目录：自动生成物、CTF2 下载缓存和会话文件统一放在应用沙盒中。
 
-- Built-in analyzers handle deterministic local tasks such as recursive ZIP/GZIP/TAR/TGZ extraction, strings, encoded text layers, bundled offline OCR, PNG text chunks, PNG/BMP LSB candidates, GIF extension text, QR/barcode detection, disk/memory forensic triage, basic pcap triage, PDF/Office unpacking, WAV clues, ELF checksec/Pwn surface/gadget triage, and ELF/PE/APK structure summaries.
-- A bundled toolbox report is generated automatically for each root artifact. It mimics the common workflow of `strings`, `binwalk`, `Ciphey`, `zsteg`, `TShark`, `rabin2`, and `exiftool` where a lightweight in-app implementation is practical.
-- External tool adapters run mature local tools when they are installed. Safe scan/extract adapters are executed automatically during solver runs, while heavier decompile/export actions remain available from each artifact card.
+## CTF2 使用方式
 
-Supported adapters:
+1. 打开左侧 `CTF2`。
+2. 先点 `刷新`，公开题库不需要登录也能浏览。
+3. 下载附件前需要登录。优先使用 `浏览器登录`，登录后从 CTF2 页面的 Local Storage 复制 token。
+4. 把 token 粘贴到 `浏览器 token` 区域，点 `验证并连接`。
+5. 选择有附件的题目，点 `导入并求解`。
+6. 导入后附件会进入工作台，并自动触发本地分析。
 
-- `ExifTool`: metadata extraction for images, documents, audio, archives, and binaries
-- `binwalk`: signature scan and embedded-file extraction
-- `zsteg`: PNG/BMP LSB steganography scan
-- `TShark`: HTTP/DNS extraction and HTTP object export from traffic captures
-- `Ciphey`: automatic decode/decrypt attempts for text-like artifacts
-- `rabin2`: ELF/PE/Mach-O header, section, import, and string triage
-- `jadx`: APK/DEX Java decompilation
-- `apktool`: APK resource and smali unpacking
+如果连接失败，点 `诊断`，再点 `复制日志`，把日志发出来即可判断是 token、接口还是本地沙盒问题。
 
-If a tool is missing, the artifact card and solver panel show it as `未安装` with the install direction. After installing and reopening/rerunning analysis, the matching action becomes available and can participate in automatic solving.
+CTF2 靶机启动和 flag 提交仍需手动在 CTF2 页面确认，应用不会自动启动靶机或提交 flag。
 
-## Sandbox Mode
+## Web 页面使用方式
 
-Runtime output is intentionally grouped under Electron `userData/sandbox/`:
+Web 页面只做有边界的 CTF 靶机线索扫描。填写目标地址，勾选授权确认，再开始分析。默认策略：
 
-- `generated/`: recursive analysis output, extracted files, tool reports, and derived artifacts
-- `downloads/`: reserved for future portable tool downloads
-- `tools/`: reserved for future portable helper binaries
-- `session/`: temporary session state, cleared on app launch
+```text
+仅 GET
+同源范围
+不执行 JS
+不提交表单
+限时限量
+```
 
-Deleting the sandbox folder removes generated analysis data and future bundled helper tools together. The app also exposes `打开沙盒目录` and `清理沙盒` in Settings. Original challenge files selected from disk are never copied or deleted by sandbox cleanup.
+公网 CTF 靶机需要额外勾选允许公网目标。
 
-## Repository Layout
+## 设置页
 
-- `src/ctf_compass/`: application package
-- `desktop/`: Electron desktop shell and UI
-- `docs/`: architecture and challenge methodology guides
-- `docs/public-challenge-benchmarks-2026.md`: repeatable validation notes from recent public CTF challenge releases
-- `docs/huanghe-cup-prep.md`: Huanghe Cup public-history capability matrix and pre-competition checklist
-- `docs/local-web-workbench.md`: local Web target scope, workflow, limits, and training setup
-- `plugins/`: future plugin definitions for category-specific helpers
+设置页保留少量高频管理项：
 
-## Desktop App
+- 切换主题。
+- 查看运行版本和沙盒路径。
+- 打开或清理沙盒。
+- 管理 CTF2：查看登录状态、导入记录、打开 CTF2 下载目录、清理 CTF2 下载缓存。
+- 检查 GitHub Release 更新。
+
+## 本地开发
 
 ```powershell
 npm install
-npm run dev
+npm run dev:electron
 ```
 
-Create a Windows desktop build:
+创建 Windows ZIP：
 
 ```powershell
-npm run dist:dir
+npm run dist:zip
 ```
 
-The unpacked Windows app will be written to `release/win-unpacked/`.
-
-A downloadable zip can be created from the unpacked build. The current local package name is `release/CTF-Compass-0.9.1-win-x64.zip`.
-
-Run local analyzer regressions:
+运行 smoke test：
 
 ```powershell
+npm run smoke:desktop
 npm run smoke:analyzer
 npm run smoke:web
 ```
 
-## GitHub Releases
+## 目录结构
 
-Versioned downloads are published through GitHub Releases.
+```text
+desktop/                  Electron 桌面端
+  main.js                 主进程、IPC、沙盒、Release 检查
+  preload.js              renderer 安全 API
+  ctf2-connector.js       CTF2 登录、题库、附件下载
+  renderer/               页面、样式、前端逻辑
+scripts/                  smoke test 和构建辅助脚本
+docs/                     方法论和设计文档
+```
 
-- Pushing a tag such as `v0.4.6` builds the Windows zip and uploads it to that release.
-- Historical builds can be backfilled from the Actions page by running `Build release` with a tag like `v0.4.5` and the matching commit SHA.
-- Release artifacts are named `CTF-Compass-<version>-win-x64.zip` so older versions remain easy to find.
+## 发布
 
-## Next Steps
+当前正式版通过 `.github/workflows/release-preview.yml` 自动发布到：
 
-1. Add dedicated workbench panes for PDF / Office so document-style attachments stop falling back to the generic results grid.
-2. Add an optional tool installer/bootstrap page that can generate Windows/WSL setup commands without silently changing the host.
-3. Deepen local binary routes with APK resource-id mapping, fuller DEX proto/method views, PE protection/export grouping, and ELF relocation detail views.
-4. Add category-specific plugin modules and installer-specific packaging.
+```text
+CTF Compass v0.9.2
+```
+
+发布前会运行桌面壳、分析器和 Web 分析 smoke test。测试失败不会发布 Release。
