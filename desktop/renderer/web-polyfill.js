@@ -6,113 +6,7 @@
   window.setTimeout(installCtf2ConnectorUi, 0);
 
   function installBrowserPreviewApi() {
-    const textEncoder = new TextEncoder();
     const sandboxRoot = "Browser preview sandbox";
-    const previewArtifacts = [
-      {
-        id: "preview-readme",
-        path: "preview://challenge/readme.txt",
-        name: "readme.txt",
-        family: "text",
-        familyLabel: "文本",
-        badge: "TXT",
-        sizeLabel: "1.3 KB",
-        sourceKind: "input",
-      },
-    ];
-
-    function delay(value, ms = 160) {
-      return new Promise((resolve) => window.setTimeout(() => resolve(value), ms));
-    }
-
-    function makeArtifact(path, index) {
-      const name = String(path || `artifact-${index + 1}.bin`).split(/[\\/]/).pop() || `artifact-${index + 1}.bin`;
-      const extension = name.includes(".") ? name.split(".").pop().toLowerCase() : "bin";
-      const family = extension === "pcap" || extension === "pcapng"
-        ? "network"
-        : ["png", "jpg", "jpeg", "gif", "bmp", "webp"].includes(extension)
-          ? "image"
-          : ["zip", "gz", "rar", "7z"].includes(extension)
-            ? "archive"
-            : ["txt", "md", "json", "csv", "log"].includes(extension)
-              ? "text"
-              : "binary";
-      const labels = { archive: "压缩包", binary: "二进制", image: "图像", network: "流量", text: "文本" };
-      return {
-        id: `preview-${Date.now()}-${index}`,
-        path: String(path || `preview://${name}`),
-        name,
-        family,
-        familyLabel: labels[family] || "其他",
-        badge: extension.toUpperCase(),
-        sizeLabel: `${Math.max(1, Math.round(textEncoder.encode(name).length / 2))}.0 KB`,
-        sourceKind: "input",
-      };
-    }
-
-    function buildPreviewAnalysis(payload) {
-      const artifacts = (payload.artifacts || []).map((item, index) => typeof item === "string" ? makeArtifact(item, index) : item);
-      const flagCandidates = artifacts.length ? [{ value: "flag{browser_preview_demo}", source: "web-polyfill preview result" }] : [];
-      return {
-        challenge: {
-          title: payload.title || "Browser Preview Challenge",
-          description: payload.description || "",
-          notes: payload.notes || "",
-          tags: payload.tags || [],
-          artifactCount: artifacts.length,
-        },
-        classification: {
-          primary: "misc",
-          label: "杂项",
-          confidence: artifacts.length ? 0.72 : 0.34,
-          reason: artifacts.length ? "浏览器预览环境使用 mock 数据展示流程。" : "还没有添加附件。",
-          evidence: artifacts.length ? ["已添加预览附件。"] : [],
-          nextMoves: ["在桌面版中添加真实附件。", "运行自动求解。"],
-          tools: ["内置工具箱"],
-        },
-        artifacts,
-        pipelineLog: [],
-        pipelineErrors: [],
-        solver: {
-          status: artifacts.length ? "solved" : "partial",
-          title: artifacts.length ? "已找到预览 flag 候选" : "等待附件",
-          summary: artifacts.length ? "这是浏览器预览中的演示候选。" : "添加附件后可查看分析面板布局。",
-          primaryFlag: flagCandidates[0] || null,
-          candidates: flagCandidates,
-          confidence: artifacts.length ? 0.72 : 0.34,
-          actionsRun: artifacts.length ? 1 : 0,
-          artifactCount: artifacts.length,
-          missingTools: [],
-          failedActions: [],
-          nextActions: ["确认候选来源后再提交。"],
-        },
-        quickFindings: artifacts.length ? ["预览模式：已加载附件布局。"] : ["先添加题目信息或附件，再进行分析。"],
-        flagCandidates,
-        warnings: ["当前为浏览器预览 mock。"],
-        toolStatus: { installed: [], missing: [] },
-        bundledTools: [],
-        emptyFlagMessage: "暂无 flag 候选。",
-      };
-    }
-
-    function buildPreviewWebAnalysis(payload) {
-      const target = String(payload?.url || "http://127.0.0.1:8080/");
-      return {
-        target,
-        origin: target.replace(/\/$/, ""),
-        resolvedAddresses: ["127.0.0.1"],
-        requestCount: 3,
-        durationMs: 180,
-        pages: [{ url: target, status: 200, contentType: "text/html", bytes: 1240, comments: [], forms: [], sourceMaps: [], routeCandidates: [] }],
-        errors: [],
-        findings: ["浏览器预览只展示 Web 工作区布局。"],
-        flagCandidates: [],
-        nextSteps: ["使用 Electron 桌面版分析真实靶机。"],
-        reportPath: "",
-        reportPaths: [],
-      };
-    }
-
     const mockChallenges = [
       {
         id: "preview-signin",
@@ -142,12 +36,37 @@
       },
     ];
 
+    const delay = (value, ms = 120) => new Promise((resolve) => window.setTimeout(() => resolve(value), ms));
+    const makeArtifact = (name = "readme.txt") => ({
+      id: `preview-${Date.now()}`,
+      path: `preview://ctf2/${name}`,
+      name,
+      family: "text",
+      familyLabel: "文本",
+      badge: "TXT",
+      sizeLabel: "1.0 KB",
+      sourceKind: "input",
+    });
+
     window.ctfCompass = {
-      pickFiles: () => delay(previewArtifacts),
-      pickFolder: () => delay(previewArtifacts),
-      prepareArtifacts: (paths) => delay((paths || []).map(makeArtifact)),
-      analyzeChallenge: (payload) => delay(buildPreviewAnalysis(payload || {}), 260),
-      analyzeWebTarget: (payload) => delay(buildPreviewWebAnalysis(payload || {}), 260),
+      pickFiles: () => delay([makeArtifact()]),
+      pickFolder: () => delay([makeArtifact()]),
+      prepareArtifacts: (paths) => delay((paths || []).map((path) => makeArtifact(String(path).split(/[\\/]/).pop()))),
+      analyzeChallenge: (payload = {}) =>
+        delay({
+          challenge: { title: payload.title || "Browser Preview", description: payload.description || "", notes: payload.notes || "", tags: payload.tags || [] },
+          classification: { primary: "misc", label: "杂项", confidence: 0.5, reason: "浏览器预览。", evidence: [], nextMoves: ["使用桌面版运行真实分析。"], tools: [] },
+          artifacts: payload.artifacts || [],
+          pipelineLog: [],
+          pipelineErrors: [],
+          solver: { status: "partial", title: "预览模式", summary: "浏览器预览不会运行本地工具。", candidates: [], confidence: 0.5, nextActions: [] },
+          quickFindings: [],
+          flagCandidates: [],
+          warnings: ["当前为浏览器预览 mock。"],
+          toolStatus: { installed: [], missing: [] },
+          bundledTools: [],
+        }),
+      analyzeWebTarget: () => delay({ pages: [], findings: ["浏览器预览不会扫描真实靶机。"], flagCandidates: [], nextSteps: [] }),
       runArtifactAction: () => delay({ message: "浏览器预览不会运行本地工具。", generatedArtifacts: [] }),
       revealArtifact: () => delay(null),
       loadWorkspace: () => delay(null),
@@ -181,145 +100,104 @@
 
     function importPreviewChallenge(payload) {
       const challenge = mockChallenges.find((item) => item.id === payload.challengeId) || mockChallenges[0];
-      return {
-        challenge,
-        paths: ["preview://ctf2/readme.txt"],
-        metadataPath: "preview://ctf2/ctf2-challenge.json",
-        artifacts: [makeArtifact("preview://ctf2/readme.txt", 0)],
-      };
+      return { challenge, paths: ["preview://ctf2/readme.txt"], metadataPath: "preview://ctf2/ctf2-challenge.json", artifacts: [makeArtifact("readme.txt")] };
     }
   }
 
   function installCtf2ConnectorUi() {
     const nav = document.querySelector(".nav");
     const main = document.querySelector(".main");
-    if (!nav || !main || document.getElementById("ctf2-view")) {
-      return;
-    }
+    if (!nav || !main || document.getElementById("ctf2-view")) return;
 
-    const uiState = {
-      status: null,
-      challenges: [],
-      categories: [],
-      selected: null,
-      busy: false,
-      searchTimer: null,
-    };
-
+    const state = { status: null, challenges: [], selected: null, busy: false, searchTimer: null };
     const navButton = document.createElement("button");
     navButton.className = "nav-item ctf2-nav-item";
     navButton.type = "button";
     navButton.dataset.view = "ctf2";
     navButton.innerHTML = `
-      <span class="nav-icon" aria-hidden="true">
-        <svg viewBox="0 0 24 24" fill="none">
-          <path d="M5 5h14v14H5zM8 9h8M8 13h5M8 17h8" />
-          <path d="M16 13h.01" />
-        </svg>
-      </span>
+      <span class="nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 5h14v14H5zM8 9h8M8 13h5M8 17h8" /><path d="M16 13h.01" /></svg></span>
       <span>CTF2</span>
     `;
-
     const webNav = nav.querySelector('[data-view="web"]');
-    if (webNav && webNav.parentElement === nav) {
-      webNav.after(navButton);
-    } else if (webNav && webNav.parentElement?.classList.contains("nav-group")) {
-      webNav.after(navButton);
-    } else {
-      nav.append(navButton);
-    }
+    if (webNav) webNav.after(navButton);
+    else nav.prepend(navButton);
 
-    const ctf2View = document.createElement("section");
-    ctf2View.id = "ctf2-view";
-    ctf2View.className = "view ctf2-view";
-    ctf2View.innerHTML = `
-      <section class="panel ctf2-connector-panel">
-        <div class="panel-head ctf2-head">
-          <div>
-            <p class="panel-kicker">CTF2</p>
-            <h3 class="panel-title">CTF2 题库连接器</h3>
-          </div>
-          <div class="ctf2-actions">
-            <span id="ctf2-account-status" class="scope-badge">检查登录状态...</span>
-            <button id="ctf2-login-button" class="secondary-button" type="button">应用内登录</button>
-            <button id="ctf2-system-login-button" class="secondary-button" type="button">浏览器登录</button>
-            <button id="ctf2-logout-button" class="secondary-button danger-button" type="button">退出</button>
+    const view = document.createElement("section");
+    view.id = "ctf2-view";
+    view.className = "view ctf2-view";
+    view.innerHTML = `
+      <div class="ctf2-toolbar panel">
+        <div>
+          <p class="panel-kicker">CTF2 CONNECTOR</p>
+          <h3 class="panel-title">直接浏览并导入 CTF2 题目</h3>
+          <p class="body-copy">题目列表可公开浏览；附件下载使用独立登录会话，并保存到本应用沙盒。</p>
+        </div>
+        <div class="ctf2-account-actions">
+          <span id="ctf2-account-status" class="scope-badge">检查登录状态...</span>
+          <button id="ctf2-login-button" class="secondary-button" type="button">应用内登录</button>
+          <button id="ctf2-system-login-button" class="secondary-button" type="button">浏览器登录</button>
+          <button id="ctf2-logout-button" class="secondary-button danger-button" type="button">退出登录</button>
+        </div>
+      </div>
+
+      <details class="panel ctf2-token-help" open>
+        <summary>浏览器登录令牌</summary>
+        <div class="ctf2-token-help-body">
+          <p class="body-copy">应用内 Passkey 无法验证时，先点击“浏览器登录”完成验证，再从 CTF2 页面的“应用程序 / Local Storage”复制 token。也可在控制台执行 <code>localStorage.getItem("token")</code>。令牌验证通过后仅加密保存在本机。</p>
+          <div class="ctf2-token-row">
+            <label class="field ctf2-token-field" for="ctf2-token-input"><span>粘贴 token</span><input id="ctf2-token-input" type="password" placeholder="在这里粘贴 CTF2 token" autocomplete="off" /></label>
+            <button id="ctf2-token-import-button" class="primary-button" type="button">验证并连接</button>
           </div>
         </div>
-        <div class="ctf2-status-card">
-          <div>
-            <strong id="ctf2-status-title">未连接</strong>
-            <p id="ctf2-status-note">可用应用内登录；如果 Passkey / Windows Hello 不可用，使用浏览器登录后复制 token。</p>
-          </div>
-          <span class="ctf2-status-dot" id="ctf2-status-dot"></span>
-        </div>
-        <div class="ctf2-token-card">
-          <label class="field ctf2-token-field">
-            <span>浏览器 token</span>
-            <input id="ctf2-token-input" type="password" placeholder="从 CTF2 Local Storage 复制 token" autocomplete="off" />
-          </label>
-          <button id="ctf2-token-import-button" class="primary-button" type="button">验证并连接</button>
-        </div>
-      </section>
+      </details>
 
       <div class="ctf2-layout">
-        <section class="panel ctf2-list-panel">
-          <div class="panel-head compact-head">
-            <div>
-              <p class="panel-kicker">题库</p>
-              <h3 class="panel-title">题目</h3>
-            </div>
+        <section class="panel ctf2-browser-panel">
+          <div class="ctf2-filters">
+            <label class="field ctf2-search-field"><span>搜索题目</span><input id="ctf2-search-input" type="search" placeholder="题目名、描述或编号" autocomplete="off" /></label>
+            <label class="field"><span>题型</span><select id="ctf2-category-select"><option value="all">全部</option></select></label>
+            <button id="ctf2-refresh-button" class="secondary-button" type="button">刷新题库</button>
           </div>
-          <div class="ctf2-search-row">
-            <input id="ctf2-search-input" class="ctf2-search" type="search" placeholder="题目名、描述或编号" autocomplete="off" />
-            <select id="ctf2-category-select"><option value="all">全部</option></select>
-            <button id="ctf2-refresh-button" class="secondary-button" type="button">刷新</button>
-          </div>
-          <p id="ctf2-result-count" class="empty-copy">尚未加载。</p>
-          <div id="ctf2-challenge-list" class="ctf2-problem-list"></div>
+          <div class="section-label-row"><div><h3 class="section-title">BUUCTF 公开练习题</h3><p id="ctf2-result-count" class="body-copy">尚未加载。</p></div></div>
+          <div id="ctf2-challenge-list" class="ctf2-challenge-list"></div>
         </section>
 
         <aside class="panel ctf2-detail-panel">
-          <div class="panel-head compact-head">
-            <div>
-              <p class="panel-kicker">详情</p>
-              <h3 id="ctf2-detail-title" class="panel-title">选择一道题目</h3>
-            </div>
-          </div>
-          <div id="ctf2-detail-meta" class="ctf2-chip-row"></div>
-          <p id="ctf2-detail-description" class="ctf2-description">选择题目后可查看描述、附件和导入操作。</p>
+          <div class="panel-head compact-head"><div><p class="panel-kicker">SELECTED CHALLENGE</p><h3 id="ctf2-detail-title" class="panel-title">选择一道题目</h3></div></div>
+          <div id="ctf2-detail-meta" class="ctf2-detail-meta"></div>
+          <p id="ctf2-detail-description" class="body-copy">选择题目后可查看描述、附件和导入操作。</p>
           <div id="ctf2-file-list" class="stack-list compact-stack"></div>
           <button id="ctf2-import-button" class="primary-button ctf2-import-button" type="button" disabled>导入附件并自动求解</button>
-          <div class="ctf2-training-card">
-            <strong>导入逻辑</strong>
-            <p>附件下载到软件沙盒后，会写入当前工作台题面和题目信息。</p>
-          </div>
+          <p class="empty-copy">靶机启动和 flag 提交仍需在 CTF2 页面手动确认，连接器不会自动提交。</p>
         </aside>
       </div>
     `;
-    main.append(ctf2View);
+    main.append(view);
 
     const el = {
-      accountStatus: ctf2View.querySelector("#ctf2-account-status"),
-      loginButton: ctf2View.querySelector("#ctf2-login-button"),
-      systemLoginButton: ctf2View.querySelector("#ctf2-system-login-button"),
-      logoutButton: ctf2View.querySelector("#ctf2-logout-button"),
-      tokenInput: ctf2View.querySelector("#ctf2-token-input"),
-      tokenImportButton: ctf2View.querySelector("#ctf2-token-import-button"),
-      statusTitle: ctf2View.querySelector("#ctf2-status-title"),
-      statusNote: ctf2View.querySelector("#ctf2-status-note"),
-      statusDot: ctf2View.querySelector("#ctf2-status-dot"),
-      searchInput: ctf2View.querySelector("#ctf2-search-input"),
-      categorySelect: ctf2View.querySelector("#ctf2-category-select"),
-      refreshButton: ctf2View.querySelector("#ctf2-refresh-button"),
-      resultCount: ctf2View.querySelector("#ctf2-result-count"),
-      challengeList: ctf2View.querySelector("#ctf2-challenge-list"),
-      detailTitle: ctf2View.querySelector("#ctf2-detail-title"),
-      detailMeta: ctf2View.querySelector("#ctf2-detail-meta"),
-      detailDescription: ctf2View.querySelector("#ctf2-detail-description"),
-      fileList: ctf2View.querySelector("#ctf2-file-list"),
-      importButton: ctf2View.querySelector("#ctf2-import-button"),
+      account: view.querySelector("#ctf2-account-status"),
+      login: view.querySelector("#ctf2-login-button"),
+      systemLogin: view.querySelector("#ctf2-system-login-button"),
+      logout: view.querySelector("#ctf2-logout-button"),
+      token: view.querySelector("#ctf2-token-input"),
+      importToken: view.querySelector("#ctf2-token-import-button"),
+      search: view.querySelector("#ctf2-search-input"),
+      category: view.querySelector("#ctf2-category-select"),
+      refresh: view.querySelector("#ctf2-refresh-button"),
+      count: view.querySelector("#ctf2-result-count"),
+      list: view.querySelector("#ctf2-challenge-list"),
+      detailTitle: view.querySelector("#ctf2-detail-title"),
+      detailMeta: view.querySelector("#ctf2-detail-meta"),
+      detailDescription: view.querySelector("#ctf2-detail-description"),
+      fileList: view.querySelector("#ctf2-file-list"),
+      importChallenge: view.querySelector("#ctf2-import-button"),
     };
+
+    navButton.addEventListener("click", activateCtf2View);
+    document.addEventListener("click", (event) => {
+      const item = event.target.closest?.(".nav-item");
+      if (item && item !== navButton) view.classList.remove("is-active");
+    });
 
     function setStatus(message, kind = "info") {
       const banner = document.getElementById("status-banner");
@@ -330,93 +208,76 @@
       banner.classList.toggle("is-error", kind === "error");
     }
 
-    function setBusy(value) {
-      uiState.busy = value;
-      [el.loginButton, el.systemLoginButton, el.logoutButton, el.tokenImportButton, el.refreshButton, el.importButton]
-        .forEach((button) => {
-          if (!button) return;
-          button.disabled = value || (button === el.logoutButton && !uiState.status?.connected) || (button === el.importButton && !uiState.selected?.files?.length);
-          button.classList.toggle("is-disabled", button.disabled);
-        });
+    function setBusy(busy) {
+      state.busy = busy;
+      [el.login, el.systemLogin, el.logout, el.importToken, el.refresh, el.importChallenge].forEach((button) => {
+        if (!button) return;
+        button.disabled = busy || (button === el.logout && !state.status?.connected) || (button === el.importChallenge && !state.selected?.files?.length);
+      });
     }
 
     function activateCtf2View() {
       document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item === navButton));
-      document.querySelectorAll(".view").forEach((view) => view.classList.toggle("is-active", view === ctf2View));
+      document.querySelectorAll(".view").forEach((node) => node.classList.toggle("is-active", node === view));
       document.body.dataset.view = "ctf2";
       const kicker = document.getElementById("view-kicker");
       const title = document.getElementById("view-title");
-      if (kicker) kicker.textContent = "CTF2";
+      if (kicker) kicker.textContent = "CTF2 题库";
       if (title) title.textContent = "CTF2 题库连接器";
-      if (!uiState.challenges.length) {
-        refreshCtf2Status().catch(() => {});
+      if (!state.challenges.length) {
+        refreshStatus().catch(() => {});
         loadChallenges(false).catch(() => {});
       }
     }
 
-    document.addEventListener("click", (event) => {
-      const item = event.target.closest?.(".nav-item");
-      if (item && item !== navButton) {
-        ctf2View.classList.remove("is-active");
-      }
-    });
-    navButton.addEventListener("click", activateCtf2View);
-
-    function renderStatus(note) {
-      const connected = Boolean(uiState.status?.connected);
-      el.accountStatus.textContent = connected
-        ? `已连接${uiState.status?.profile?.username ? ` · ${uiState.status.profile.username}` : ""}`
-        : "未连接";
-      el.statusTitle.textContent = connected ? "CTF2 已连接" : "CTF2 未连接";
-      el.statusNote.textContent = note || (connected ? "可同步题库、下载附件并导入到当前工作台。" : "可使用应用内登录，或浏览器登录后复制 token。");
-      el.statusDot.classList.toggle("connected", connected);
+    function renderStatus() {
+      const connected = Boolean(state.status?.connected);
+      el.account.textContent = connected
+        ? `已登录${state.status?.profile?.username ? ` · ${state.status.profile.username}` : ""}`
+        : "未登录 · 可浏览题库";
       setBusy(false);
     }
 
     function renderCategories(categories) {
-      const current = el.categorySelect.value || "all";
-      el.categorySelect.innerHTML = '<option value="all">全部</option>';
+      const current = el.category.value || "all";
+      el.category.innerHTML = '<option value="all">全部</option>';
       (categories || []).forEach((category) => {
         const option = document.createElement("option");
         option.value = category;
         option.textContent = category;
-        el.categorySelect.append(option);
+        el.category.append(option);
       });
-      el.categorySelect.value = Array.from(el.categorySelect.options).some((option) => option.value === current) ? current : "all";
+      el.category.value = Array.from(el.category.options).some((option) => option.value === current) ? current : "all";
     }
 
     function renderList(total) {
-      el.resultCount.textContent = `当前显示 ${uiState.challenges.length} 道题${Number.isFinite(total) ? ` / 匹配 ${total}` : ""}`;
-      el.challengeList.innerHTML = "";
-      if (!uiState.challenges.length) {
+      el.count.textContent = `当前显示 ${state.challenges.length} 道题${Number.isFinite(total) ? ` / 匹配 ${total}` : ""}`;
+      el.list.innerHTML = "";
+      if (!state.challenges.length) {
         const empty = document.createElement("p");
         empty.className = "empty-copy";
-        empty.textContent = "没有匹配的题目。";
-        el.challengeList.append(empty);
+        empty.textContent = "没有匹配题目，调整搜索或刷新题库。";
+        el.list.append(empty);
         renderDetail();
         return;
       }
-      uiState.challenges.forEach((challenge) => {
-        const button = document.createElement("button");
-        button.className = `ctf2-problem${uiState.selected?.id === challenge.id ? " active" : ""}`;
-        button.type = "button";
-        button.innerHTML = `
-          <strong>${escapeHtml(challenge.name)}</strong>
-          <span>${escapeHtml([challenge.category, challenge.difficulty].filter(Boolean).join(" · ") || "CTF2")}</span>
-          <em>${challenge.files?.length ? `${challenge.files.length} 附件` : "无附件"}</em>
-        `;
-        button.addEventListener("click", () => {
-          uiState.selected = challenge;
+      state.challenges.forEach((challenge) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = `ctf2-challenge-item${state.selected?.id === challenge.id ? " is-selected" : ""}`;
+        item.innerHTML = `<div class="ctf2-challenge-copy"><strong>${escapeHtml(challenge.name)}</strong><small>${escapeHtml([challenge.category, challenge.difficulty].filter(Boolean).join(" · ") || "CTF2")}</small></div><span class="ctf2-challenge-stats">${challenge.files?.length ? `${challenge.files.length} 附件` : "无附件"}<br />${challenge.solveCount || 0} solves</span>`;
+        item.addEventListener("click", () => {
+          state.selected = challenge;
           renderList(total);
           renderDetail();
         });
-        el.challengeList.append(button);
+        el.list.append(item);
       });
       renderDetail();
     }
 
     function renderDetail() {
-      const selected = uiState.selected;
+      const selected = state.selected;
       el.detailTitle.textContent = selected?.name || "选择一道题目";
       el.detailDescription.textContent = selected?.description || "选择题目后可查看描述、附件和导入操作。";
       el.detailMeta.innerHTML = "";
@@ -424,9 +285,9 @@
         [selected.category, selected.difficulty, selected.points ? `${selected.points} 分` : "", selected.solveCount ? `${selected.solveCount} solves` : ""]
           .filter(Boolean)
           .forEach((label) => {
-            const chip = document.createElement("span");
-            chip.textContent = label;
-            el.detailMeta.append(chip);
+            const tag = document.createElement("span");
+            tag.textContent = label;
+            el.detailMeta.append(tag);
           });
       }
       el.fileList.innerHTML = "";
@@ -444,60 +305,52 @@
           el.fileList.append(row);
         });
       }
-      setBusy(uiState.busy);
+      setBusy(state.busy);
     }
 
-    async function refreshCtf2Status(note) {
+    async function refreshStatus() {
       try {
-        uiState.status = await window.ctfCompass.getCtf2Status?.();
-        renderStatus(note);
+        state.status = await window.ctfCompass.getCtf2Status?.();
       } catch (error) {
-        uiState.status = { connected: false, error: error.message };
-        renderStatus(error.message);
+        state.status = { connected: false, error: error.message };
       }
+      renderStatus();
     }
 
     async function loadChallenges(force = false) {
       if (!window.ctfCompass.listCtf2Challenges) {
-        el.resultCount.textContent = "当前构建没有接入 CTF2 题库接口。";
+        el.count.textContent = "当前构建没有接入 CTF2 题库接口。";
         return;
       }
       setBusy(true);
       try {
-        const result = await window.ctfCompass.listCtf2Challenges({
-          query: el.searchInput.value.trim(),
-          category: el.categorySelect.value,
-          force,
-          limit: 160,
-        });
-        uiState.challenges = result.challenges || [];
-        if (!uiState.challenges.some((item) => item.id === uiState.selected?.id)) {
-          uiState.selected = uiState.challenges[0] || null;
-        }
+        const result = await window.ctfCompass.listCtf2Challenges({ query: el.search.value.trim(), category: el.category.value, force, limit: 160 });
+        state.challenges = result.challenges || [];
+        if (!state.challenges.some((item) => item.id === state.selected?.id)) state.selected = state.challenges[0] || null;
         renderCategories(result.categories || []);
         renderList(Number(result.total));
-        setStatus(`已加载 CTF2 题库，共匹配 ${result.total || uiState.challenges.length} 道。`);
+        setStatus(`已加载 CTF2 题目，共匹配 ${result.total || state.challenges.length} 道。`);
       } catch (error) {
         setStatus(`CTF2 题库加载失败：${error.message}`, "error");
-        await refreshCtf2Status().catch(() => {});
+        await refreshStatus().catch(() => {});
       } finally {
         setBusy(false);
       }
     }
 
     async function importToken() {
-      const token = el.tokenInput.value.trim();
+      const token = el.token.value.trim();
       if (!token) {
         setStatus("请先粘贴 CTF2 token。", "error");
-        el.tokenInput.focus();
+        el.token.focus();
         return;
       }
       setBusy(true);
       try {
-        uiState.status = await window.ctfCompass.importCtf2Token(token);
-        el.tokenInput.value = "";
-        renderStatus("Token 验证通过，已连接 CTF2。");
-        setStatus("CTF2 token 已验证并保存。");
+        state.status = await window.ctfCompass.importCtf2Token(token);
+        el.token.value = "";
+        renderStatus();
+        setStatus("CTF2 登录令牌已验证并加密保存在本机。");
         await loadChallenges(true);
       } catch (error) {
         setStatus(`CTF2 token 验证失败：${error.message}`, "error");
@@ -507,36 +360,30 @@
     }
 
     async function importChallenge() {
-      if (!uiState.selected) return;
-      if (!window.ctfCompass.importCtf2Challenge) {
-        setStatus("当前构建没有接入 CTF2 导入接口。", "error");
-        return;
-      }
+      if (!state.selected || !window.ctfCompass.importCtf2Challenge) return;
       setBusy(true);
       try {
-        setStatus(`正在下载并导入：${uiState.selected.name}`);
-        const imported = await window.ctfCompass.importCtf2Challenge({
-          challengeId: uiState.selected.id,
-          groundId: uiState.selected.groundId,
-        });
-        const challenge = imported.challenge || uiState.selected;
-        const titleInput = document.getElementById("title-input");
-        const tagsInput = document.getElementById("tags-input");
-        const descriptionInput = document.getElementById("description-input");
-        const notesInput = document.getElementById("notes-input");
-        if (titleInput) titleInput.value = challenge.name || "";
-        if (tagsInput) tagsInput.value = [challenge.category, "CTF2", challenge.groundName || "BUUCTF"].filter(Boolean).join(" ");
-        if (descriptionInput) descriptionInput.value = challenge.description || "";
-        if (notesInput) notesInput.value = `CTF2 导入：${challenge.groundName || "BUUCTF"}\n附件已下载到沙盒。`;
+        setStatus(`正在下载并导入：${state.selected.name}`);
+        const imported = await window.ctfCompass.importCtf2Challenge({ challengeId: state.selected.id, groundId: state.selected.groundId });
+        const challenge = imported.challenge || state.selected;
+        setValue("title-input", challenge.name || "");
+        setValue("tags-input", [challenge.category, "CTF2", challenge.groundName || "BUUCTF"].filter(Boolean).join(" "));
+        setValue("description-input", challenge.description || "");
+        setValue("notes-input", `CTF2 导入：${challenge.groundName || "BUUCTF"}\n附件已下载到沙盒。`);
         renderImportedArtifacts(imported.artifacts || []);
         activateWorkspaceView();
         setStatus("附件已从 CTF2 下载到沙盒，并写入当前工作台。可继续运行自动求解。");
       } catch (error) {
         setStatus(`CTF2 导入失败：${error.message}`, "error");
-        await refreshCtf2Status().catch(() => {});
+        await refreshStatus().catch(() => {});
       } finally {
         setBusy(false);
       }
+    }
+
+    function setValue(id, value) {
+      const node = document.getElementById(id);
+      if (node) node.value = value;
     }
 
     function renderImportedArtifacts(artifacts) {
@@ -547,15 +394,7 @@
       artifacts.forEach((artifact) => {
         const row = document.createElement("div");
         row.className = "artifact-row";
-        row.innerHTML = `
-          <div class="artifact-meta">
-            <span class="artifact-badge">${escapeHtml(artifact.badge || "CTF2")}</span>
-            <div class="artifact-text">
-              <strong>${escapeHtml(artifact.name || "attachment")}</strong>
-              <p>${escapeHtml([artifact.familyLabel, artifact.sizeLabel].filter(Boolean).join("  |  "))}</p>
-            </div>
-          </div>
-        `;
+        row.innerHTML = `<div class="artifact-meta"><span class="artifact-badge">${escapeHtml(artifact.badge || "CTF2")}</span><div class="artifact-text"><strong>${escapeHtml(artifact.name || "attachment")}</strong><p>${escapeHtml([artifact.familyLabel, artifact.sizeLabel].filter(Boolean).join("  |  "))}</p></div></div>`;
         list.append(row);
       });
       if (count) count.textContent = String(artifacts.length);
@@ -563,7 +402,7 @@
 
     function activateWorkspaceView() {
       document.querySelectorAll(".nav-item").forEach((item) => item.classList.toggle("active", item.dataset.view === "workspace"));
-      document.querySelectorAll(".view").forEach((view) => view.classList.toggle("is-active", view.id === "workspace-view"));
+      document.querySelectorAll(".view").forEach((node) => node.classList.toggle("is-active", node.id === "workspace-view"));
       document.body.dataset.view = "workspace";
       const kicker = document.getElementById("view-kicker");
       const title = document.getElementById("view-title");
@@ -571,53 +410,54 @@
       if (title) title.textContent = "以附件为中心的 CTF 工作台";
     }
 
-    el.loginButton.addEventListener("click", async () => {
+    el.login.addEventListener("click", async () => {
       setBusy(true);
       try {
         await window.ctfCompass.openCtf2Login?.();
-        setStatus("已打开 CTF2 登录窗口。登录后返回软件刷新状态。");
+        setStatus("已打开 CTF2 应用内登录窗口；如果 Passkey 无法验证，请改用浏览器登录和令牌导入。");
       } catch (error) {
         setStatus(`打开 CTF2 登录失败：${error.message}`, "error");
       } finally {
         setBusy(false);
-        window.setTimeout(() => refreshCtf2Status().catch(() => {}), 800);
+        window.setTimeout(() => refreshStatus().catch(() => {}), 800);
       }
     });
-    el.systemLoginButton.addEventListener("click", async () => {
+    el.systemLogin.addEventListener("click", async () => {
       try {
         await window.ctfCompass.openCtf2SystemLogin?.();
-        setStatus("已打开系统浏览器登录页。登录后复制 localStorage token 到输入框。");
+        setStatus("已在系统浏览器打开 CTF2。完成登录后，可导入浏览器中的 token。 ");
       } catch (error) {
         setStatus(`打开浏览器登录失败：${error.message}`, "error");
       }
     });
-    el.logoutButton.addEventListener("click", async () => {
+    el.logout.addEventListener("click", async () => {
       setBusy(true);
       try {
-        uiState.status = await window.ctfCompass.logoutCtf2?.();
-        renderStatus("已退出 CTF2。 ");
+        state.status = await window.ctfCompass.logoutCtf2?.();
+        renderStatus();
+        setStatus("已清除 CTF2 独立登录会话。 ");
       } catch (error) {
         setStatus(`退出 CTF2 失败：${error.message}`, "error");
       } finally {
         setBusy(false);
       }
     });
-    el.tokenImportButton.addEventListener("click", importToken);
-    el.tokenInput.addEventListener("keydown", (event) => {
-      if (event.key === "Enter" && !el.tokenImportButton.disabled) {
+    el.importToken.addEventListener("click", importToken);
+    el.token.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && !el.importToken.disabled) {
         event.preventDefault();
         importToken();
       }
     });
-    el.refreshButton.addEventListener("click", () => loadChallenges(true));
-    el.importButton.addEventListener("click", importChallenge);
-    el.searchInput.addEventListener("input", () => {
-      window.clearTimeout(uiState.searchTimer);
-      uiState.searchTimer = window.setTimeout(() => loadChallenges(false), 280);
+    el.refresh.addEventListener("click", () => loadChallenges(true));
+    el.importChallenge.addEventListener("click", importChallenge);
+    el.search.addEventListener("input", () => {
+      window.clearTimeout(state.searchTimer);
+      state.searchTimer = window.setTimeout(() => loadChallenges(false), 280);
     });
-    el.categorySelect.addEventListener("change", () => loadChallenges(false));
+    el.category.addEventListener("change", () => loadChallenges(false));
 
-    refreshCtf2Status().catch(() => {});
+    refreshStatus().catch(() => {});
   }
 
   function escapeHtml(value) {
