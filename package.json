@@ -16,7 +16,8 @@
     "dist:zip": "electron-builder --win zip",
     "postdist:zip": "node scripts/prune-release.js",
     "smoke:analyzer": "node scripts/smoke-analyzer.js",
-    "smoke:web": "node scripts/smoke-web-analyzer.js"
+    "smoke:web": "node scripts/smoke-web-analyzer.js",
+    "smoke:desktop": "node scripts/smoke-desktop.js"
   },
   "build": {
     "appId": "com.ctfcompass.desktop",
