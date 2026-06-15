@@ -1,5 +1,5 @@
 const fs = require("fs");
-const { app, BrowserWindow, dialog, ipcMain, shell } = require("electron");
+const { app, BrowserWindow, dialog, ipcMain, screen, shell } = require("electron");
 const path = require("path");
 const { analyzeChallenge, prepareArtifactsFromEntries, runArtifactAction } = require("./analyzer");
 const { analyzeWebTarget } = require("./web-analyzer");
@@ -7,12 +7,20 @@ const { analyzeWebTarget } = require("./web-analyzer");
 const isDev = !app.isPackaged;
 const SANDBOX_DIR_NAME = "sandbox";
 
+function getInitialWindowBounds() {
+  const { width, height } = screen.getPrimaryDisplay().workAreaSize;
+  return {
+    width: Math.min(width, Math.max(1120, Math.round(width * 0.9))),
+    height: Math.min(height, Math.max(720, Math.round(height * 0.9))),
+  };
+}
+
 function createWindow() {
+  const initialBounds = getInitialWindowBounds();
   const mainWindow = new BrowserWindow({
-    width: 1500,
-    height: 980,
-    minWidth: 1240,
-    minHeight: 780,
+    ...initialBounds,
+    minWidth: 980,
+    minHeight: 680,
     backgroundColor: "#f7f7f4",
     title: "CTF Compass",
     autoHideMenuBar: true,
@@ -218,21 +226,19 @@ ipcMain.handle("export-report", async (_event, payload) => {
   const result = await dialog.showSaveDialog({
     title: "Export Markdown report",
     defaultPath: path.join(app.getPath("documents"), suggestedName),
-    filters: [
-      { name: "Markdown", extensions: ["md"] },
-      { name: "Text", extensions: ["txt"] },
-    ],
+    filters: [{ name: "Markdown", extensions: ["md"] }],
   });
 
   if (result.canceled || !result.filePath) {
-    return { canceled: true };
+    return null;
   }
 
   ensureParentDir(result.filePath);
   fs.writeFileSync(result.filePath, content, "utf8");
   return { filePath: result.filePath };
 });
-ipcMain.handle("app-meta", async () => ({
+
+ipcMain.handle("get-meta", async () => ({
   version: app.getVersion(),
   packaged: app.isPackaged,
   mode: isDev ? "development" : "production",
@@ -241,19 +247,17 @@ ipcMain.handle("app-meta", async () => ({
 
 app.whenReady().then(() => {
   ensureSandboxLayout();
-  cleanupLegacyRuntimeData();
-  clearSessionWorkspace();
   createWindow();
-
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
-  });
 });
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
+  }
+});
+
+app.on("activate", () => {
+  if (BrowserWindow.getAllWindows().length === 0) {
+    createWindow();
   }
 });
