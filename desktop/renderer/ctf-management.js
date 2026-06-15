@@ -1,9 +1,31 @@
 (function () {
+  installSidebarGuard();
   installCompactStylesheet();
   window.setTimeout(() => {
     installCtf2SettingsCard();
     installCtf2CategoryDropdownSkin();
   }, 0);
+
+  function installSidebarGuard() {
+    if (window.__ctfSidebarGuardInstalled) return;
+    window.__ctfSidebarGuardInstalled = true;
+
+    const blocked = new Set(["pointerenter", "pointerleave", "focusin", "focusout"]);
+    const nativeAdd = EventTarget.prototype.addEventListener;
+    EventTarget.prototype.addEventListener = function patchedAddEventListener(type, listener, options) {
+      if (blocked.has(type) && this?.classList?.contains?.("sidebar")) {
+        return undefined;
+      }
+      return nativeAdd.call(this, type, listener, options);
+    };
+
+    function removeHoverState() {
+      document.body?.classList?.remove("sidebar-hover-expanded");
+    }
+
+    removeHoverState();
+    new MutationObserver(removeHoverState).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  }
 
   function installCompactStylesheet() {
     ["./compact-ui.css", "./sidebar-stable.css"].forEach((href) => {
