@@ -15,6 +15,8 @@ contextBridge.exposeInMainWorld("ctfCompass", {
   importCtf2Challenge: (payload) => ipcRenderer.invoke("ctf2-import-challenge", payload),
   runArtifactAction: (payload) => ipcRenderer.invoke("run-artifact-action", payload),
   revealArtifact: (targetPath) => ipcRenderer.invoke("reveal-artifact", targetPath),
+  openExternal: (url) => ipcRenderer.invoke("open-external", url),
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
   loadWorkspace: () => ipcRenderer.invoke("load-workspace"),
   loadPreviousWorkspace: () => ipcRenderer.invoke("load-previous-workspace"),
   saveWorkspace: (payload) => ipcRenderer.invoke("save-workspace", payload),
