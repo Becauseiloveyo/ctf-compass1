@@ -24,6 +24,23 @@ body[data-theme="dark"] {
   display: none !important;
 }
 
+/* Remove the English category labels in the left rail: Solve / Evidence / System. */
+.nav-group-title {
+  display: none !important;
+}
+
+.nav {
+  gap: 10px;
+}
+
+.nav-group {
+  gap: 8px;
+}
+
+.nav-item {
+  min-height: 44px;
+}
+
 .primary-button,
 .secondary-button,
 .danger-button,
@@ -76,6 +93,11 @@ body[data-theme="dark"] .primary-button {
   border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
 }
 
+/* Remove noisy English micro labels from the preview panels while keeping the original layout. */
+.ctf2-view .panel-kicker {
+  display: none !important;
+}
+
 .ctf2-view {
   display: none;
 }
@@ -91,6 +113,7 @@ body[data-theme="dark"] .primary-button {
 .ctf2-head {
   align-items: center;
   justify-content: space-between;
+  margin-bottom: 16px;
 }
 
 .ctf2-actions,
@@ -152,7 +175,7 @@ body[data-theme="dark"] .primary-button {
 
 .ctf2-list-panel,
 .ctf2-detail-panel {
-  min-height: 620px;
+  min-height: 600px;
 }
 
 .ctf2-search-row {
@@ -166,17 +189,17 @@ body[data-theme="dark"] .primary-button {
 
 .ctf2-problem-list {
   display: grid;
-  gap: 12px;
+  gap: 10px;
 }
 
 .ctf2-problem {
   width: 100%;
-  min-height: 72px;
+  min-height: 68px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 4px 16px;
   align-items: center;
-  padding: 14px 16px;
+  padding: 13px 16px;
   text-align: left;
   color: var(--text);
   border: 1px solid var(--line);
