@@ -1,11 +1,9 @@
-/* Stable sidebar: one source of truth for collapse/expand.
-   Only the rail width and text opacity animate. Icons keep fixed coordinates. */
+/* Stable sidebar: one source of truth. No hover expansion and no moving icons. */
 
 :root {
   --sidebar-rail-x: 30px;
   --sidebar-toggle-size: 42px;
   --sidebar-theme-size: 46px;
-  --sidebar-motion: 190ms cubic-bezier(0.2, 0.8, 0.2, 1);
 }
 
 .sidebar-state-dot,
@@ -13,10 +11,7 @@
   display: none !important;
 }
 
-.shell {
-  transition: grid-template-columns var(--sidebar-motion) !important;
-}
-
+.shell,
 .sidebar,
 .sidebar-top,
 .nav,
@@ -25,19 +20,15 @@
 .nav-icon,
 .brand,
 .brand-mark,
+.brand-copy,
 .sidebar-toggle,
 .sidebar-footer,
 .sidebar-row,
-.theme-toggle {
-  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease !important;
-}
-
-.brand-copy,
+.theme-toggle,
 .nav-item > span:not(.nav-icon):not(.nav-count) {
-  transition: opacity 150ms ease !important;
+  transition: none !important;
 }
 
-/* Mouse hover/focus never expands the rail. */
 body.sidebar-collapsed.sidebar-hover-expanded {
   --sidebar-width: 88px !important;
 }
@@ -69,7 +60,6 @@ body.sidebar-collapsed.sidebar-hover-expanded .sidebar-top {
   gap: 16px !important;
 }
 
-/* The hamburger stays on the same rail line in both states. */
 .sidebar-toggle,
 body:not(.sidebar-collapsed) .sidebar-toggle,
 body.sidebar-collapsed .sidebar-toggle,
@@ -92,7 +82,6 @@ body.sidebar-collapsed.sidebar-hover-expanded .sidebar-toggle {
   margin: auto !important;
 }
 
-/* Brand icon is fixed; text only fades. */
 .brand,
 body:not(.sidebar-collapsed) .brand,
 body.sidebar-collapsed .brand,
@@ -217,7 +206,6 @@ body.sidebar-collapsed.sidebar-hover-expanded .nav-item.active {
   box-shadow: none !important;
 }
 
-/* One icon-only theme button, fixed at the bottom, always clickable. */
 .sidebar-footer,
 body.sidebar-collapsed .sidebar-footer,
 body.sidebar-collapsed.sidebar-hover-expanded .sidebar-footer {
