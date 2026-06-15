@@ -1,1 +1,288 @@
-/* Disabled unstable UI preview overrides. Base renderer styles are active again. */
+/* CTF Compass original-style V1 preview overrides.
+   Scope: keep the existing light/green app identity and add the CTF2 connector surface. */
+
+:root {
+  --accent: #0d8076;
+  --accent-hover: #0a6d65;
+  --accent-soft: #e7f4f1;
+  --radius-lg: 22px;
+  --radius-md: 14px;
+  --radius-sm: 10px;
+}
+
+body[data-theme="dark"] {
+  --accent: #5cc8bc;
+  --accent-hover: #70d7cc;
+  --accent-soft: rgba(92, 200, 188, 0.14);
+}
+
+.sidebar-toggle {
+  display: none !important;
+}
+
+.sidebar-footer {
+  display: none !important;
+}
+
+.primary-button,
+.secondary-button,
+.danger-button,
+.ctf2-problem,
+.ctf2-chip-row span {
+  border-radius: 12px !important;
+  box-shadow: none !important;
+}
+
+.primary-button,
+.secondary-button,
+.danger-button {
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.primary-button {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #fff;
+  font-weight: 760;
+}
+
+body[data-theme="dark"] .primary-button {
+  color: #071615;
+}
+
+.primary-button:hover:not(:disabled) {
+  border-color: var(--accent-hover);
+  background: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.secondary-button {
+  background: var(--surface);
+  color: var(--text);
+}
+
+.secondary-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface-subtle);
+  transform: translateY(-1px);
+}
+
+.danger-button {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
+}
+
+.ctf2-view {
+  display: none;
+}
+
+.ctf2-view.is-active {
+  display: block;
+}
+
+.ctf2-connector-panel {
+  margin-bottom: 18px;
+}
+
+.ctf2-head {
+  align-items: center;
+  justify-content: space-between;
+}
+
+.ctf2-actions,
+.ctf2-detail-actions,
+.ctf2-dialog-actions,
+.ctf2-search-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ctf2-status-card,
+.ctf2-training-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface-subtle);
+}
+
+.ctf2-status-card strong,
+.ctf2-training-card strong {
+  display: block;
+  margin-bottom: 4px;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.ctf2-status-card p,
+.ctf2-training-card p,
+.ctf2-description,
+.ctf2-dialog-note {
+  margin: 0;
+  color: var(--muted);
+}
+
+.ctf2-status-dot {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 12px;
+  border-radius: 999px;
+  background: var(--warning);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning) 14%, transparent);
+}
+
+.ctf2-status-dot.connected {
+  background: var(--accent);
+  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 16%, transparent);
+}
+
+.ctf2-layout {
+  display: grid;
+  grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1.05fr);
+  gap: 18px;
+}
+
+.ctf2-list-panel,
+.ctf2-detail-panel {
+  min-height: 620px;
+}
+
+.ctf2-search-row {
+  margin-bottom: 18px;
+}
+
+.ctf2-search {
+  width: min(360px, 100%);
+  min-height: 40px;
+}
+
+.ctf2-problem-list {
+  display: grid;
+  gap: 12px;
+}
+
+.ctf2-problem {
+  width: 100%;
+  min-height: 72px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 16px;
+  align-items: center;
+  padding: 14px 16px;
+  text-align: left;
+  color: var(--text);
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.ctf2-problem:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-muted);
+}
+
+.ctf2-problem.active {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.ctf2-problem strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ctf2-problem span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.ctf2-problem em {
+  grid-row: 1 / span 2;
+  grid-column: 2;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font-style: normal;
+  font-size: 12px;
+}
+
+.ctf2-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: -4px 0 22px;
+}
+
+.ctf2-chip-row span {
+  padding: 6px 12px;
+  color: var(--muted-strong);
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+  font-size: 12px;
+}
+
+.ctf2-description {
+  margin-bottom: 28px;
+  font-size: 16px;
+}
+
+.ctf2-training-card {
+  align-items: flex-start;
+  justify-content: flex-start;
+  margin-top: 34px;
+}
+
+.ctf2-cookie-dialog {
+  width: min(620px, calc(100vw - 48px));
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: var(--surface);
+  color: var(--text);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
+}
+
+.ctf2-cookie-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.36);
+  backdrop-filter: blur(3px);
+}
+
+.ctf2-cookie-form {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+}
+
+.ctf2-cookie-form textarea {
+  resize: vertical;
+}
+
+.ctf2-dialog-actions {
+  justify-content: flex-end;
+}
+
+.ctf2-nav-item .nav-icon svg path {
+  stroke-width: 1.7;
+}
+
+body[data-view="ctf2"] .header-actions {
+  opacity: 0.35;
+  pointer-events: none;
+}
+
+@media (max-width: 1180px) {
+  .ctf2-layout {
+    grid-template-columns: 1fr;
+  }
+}
