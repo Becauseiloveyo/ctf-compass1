@@ -58,6 +58,14 @@ function workspaceFilePath() {
   return path.join(sandboxRootPath(), "session", "current-session.json");
 }
 
+function ctf2RootPath() {
+  return path.join(sandboxSubPath("downloads"), "ctf2");
+}
+
+function ctf2HistoryPath() {
+  return path.join(sandboxSubPath("session"), "ctf2-import-history.json");
+}
+
 function ensureParentDir(targetPath) {
   fs.mkdirSync(path.dirname(targetPath), { recursive: true });
 }
@@ -69,15 +77,9 @@ function ensureSandboxLayout() {
 }
 
 function formatBytes(size) {
-  if (size < 1024) {
-    return `${size} B`;
-  }
-  if (size < 1024 * 1024) {
-    return `${(size / 1024).toFixed(1)} KB`;
-  }
-  if (size < 1024 * 1024 * 1024) {
-    return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-  }
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
@@ -85,7 +87,6 @@ function measureDirectory(rootPath) {
   if (!fs.existsSync(rootPath)) {
     return { bytes: 0, files: 0 };
   }
-
   const stack = [rootPath];
   let bytes = 0;
   let files = 0;
@@ -97,18 +98,15 @@ function measureDirectory(rootPath) {
     } catch (_error) {
       continue;
     }
-
     if (stat.isDirectory()) {
       fs.readdirSync(current).forEach((name) => stack.push(path.join(current, name)));
       continue;
     }
-
     if (stat.isFile()) {
       bytes += stat.size;
       files += 1;
     }
   }
-
   return { bytes, files };
 }
 
@@ -135,11 +133,69 @@ function getSandboxInfo() {
     root: sandboxRootPath(),
     generated: sandboxSubPath("generated"),
     downloads: sandboxSubPath("downloads"),
+    ctf2Downloads: ctf2RootPath(),
     tools: sandboxSubPath("tools"),
     session: sandboxSubPath("session"),
     bytes: size.bytes,
     sizeLabel: formatBytes(size.bytes),
     fileCount: size.files,
+  };
+}
+
+function readCtf2History() {
+  ensureSandboxLayout();
+  const targetPath = ctf2HistoryPath();
+  if (!fs.existsSync(targetPath)) {
+    return [];
+  }
+  try {
+    const parsed = JSON.parse(fs.readFileSync(targetPath, "utf8"));
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (_error) {
+    return [];
+  }
+}
+
+function writeCtf2History(history) {
+  const targetPath = ctf2HistoryPath();
+  ensureParentDir(targetPath);
+  fs.writeFileSync(targetPath, `${JSON.stringify(history.slice(0, 30), null, 2)}\n`, "utf8");
+}
+
+function recordCtf2Import(imported, artifacts) {
+  const challenge = imported.challenge || {};
+  const history = readCtf2History();
+  const entry = {
+    importedAt: new Date().toISOString(),
+    id: challenge.id || "",
+    friendlyId: challenge.friendlyId || "",
+    name: challenge.name || "Unnamed challenge",
+    category: challenge.category || "",
+    groundName: challenge.groundName || "",
+    attachmentCount: Array.isArray(artifacts) ? artifacts.length : 0,
+    paths: imported.paths || [],
+    metadataPath: imported.metadataPath || "",
+    analyzed: false,
+  };
+  writeCtf2History([entry, ...history.filter((item) => item.id !== entry.id || item.groundName !== entry.groundName)]);
+  return entry;
+}
+
+function clearCtf2Data() {
+  const root = ctf2RootPath();
+  if (fs.existsSync(root)) {
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+  const historyPath = ctf2HistoryPath();
+  if (fs.existsSync(historyPath)) {
+    fs.unlinkSync(historyPath);
+  }
+  fs.mkdirSync(root, { recursive: true });
+  return {
+    cleared: true,
+    root,
+    history: [],
+    size: measureDirectory(root),
   };
 }
 
@@ -173,9 +229,7 @@ function fetchJson(url) {
         });
       },
     );
-    request.on("timeout", () => {
-      request.destroy(new Error("检查更新超时。"));
-    });
+    request.on("timeout", () => request.destroy(new Error("检查更新超时。")));
     request.on("error", reject);
   });
 }
@@ -218,11 +272,7 @@ async function selectFiles() {
     title: "Select challenge files",
     properties: ["openFile", "multiSelections"],
   });
-
-  if (result.canceled) {
-    return [];
-  }
-
+  if (result.canceled) return [];
   return prepareArtifactsFromEntries(result.filePaths);
 }
 
@@ -231,11 +281,7 @@ async function selectFolder() {
     title: "Select challenge folder",
     properties: ["openDirectory"],
   });
-
-  if (result.canceled || !result.filePaths.length) {
-    return [];
-  }
-
+  if (result.canceled || !result.filePaths.length) return [];
   return prepareArtifactsFromEntries(result.filePaths);
 }
 
@@ -252,18 +298,23 @@ ipcMain.handle("ctf2-logout", async () => ctf2Connector.logout());
 ipcMain.handle("ctf2-list-challenges", async (_event, payload) => ctf2Connector.listChallenges(payload || {}));
 ipcMain.handle("ctf2-import-challenge", async (_event, payload) => {
   const imported = await ctf2Connector.importChallenge(payload || {}, sandboxSubPath("downloads"));
-  return {
-    ...imported,
-    artifacts: prepareArtifactsFromEntries(imported.paths),
-  };
+  const artifacts = prepareArtifactsFromEntries(imported.paths);
+  const historyEntry = recordCtf2Import(imported, artifacts);
+  return { ...imported, artifacts, historyEntry };
+});
+ipcMain.handle("ctf2-history", async () => readCtf2History());
+ipcMain.handle("ctf2-clear-data", async () => clearCtf2Data());
+ipcMain.handle("ctf2-reveal-downloads", async () => {
+  const root = ctf2RootPath();
+  fs.mkdirSync(root, { recursive: true });
+  await shell.openPath(root);
+  return { root };
 });
 ipcMain.handle("run-artifact-action", async (_event, payload) =>
   runArtifactAction(payload?.actionId, payload?.filePath, buildRunOutputRoot()),
 );
 ipcMain.handle("reveal-artifact", async (_event, targetPath) => {
-  if (targetPath) {
-    shell.showItemInFolder(targetPath);
-  }
+  if (targetPath) shell.showItemInFolder(targetPath);
 });
 ipcMain.handle("open-external", async (_event, url) => {
   const target = String(url || "");
@@ -282,10 +333,7 @@ ipcMain.handle("load-workspace", async () => {
 });
 ipcMain.handle("load-previous-workspace", async () => {
   const targetPath = workspaceFilePath();
-  if (!fs.existsSync(targetPath)) {
-    return null;
-  }
-
+  if (!fs.existsSync(targetPath)) return null;
   return JSON.parse(fs.readFileSync(targetPath, "utf8"));
 });
 ipcMain.handle("save-workspace", async (_event, payload) => {
@@ -296,9 +344,7 @@ ipcMain.handle("save-workspace", async (_event, payload) => {
 });
 ipcMain.handle("clear-workspace", async () => {
   const targetPath = workspaceFilePath();
-  if (fs.existsSync(targetPath)) {
-    fs.unlinkSync(targetPath);
-  }
+  if (fs.existsSync(targetPath)) fs.unlinkSync(targetPath);
   return { cleared: true };
 });
 ipcMain.handle("sandbox-info", async () => getSandboxInfo());
@@ -326,11 +372,7 @@ ipcMain.handle("export-report", async (_event, payload) => {
       { name: "Text", extensions: ["txt"] },
     ],
   });
-
-  if (result.canceled || !result.filePath) {
-    return { canceled: true };
-  }
-
+  if (result.canceled || !result.filePath) return { canceled: true };
   ensureParentDir(result.filePath);
   fs.writeFileSync(result.filePath, content, "utf8");
   return { filePath: result.filePath };
@@ -349,14 +391,10 @@ app.whenReady().then(() => {
   createWindow();
 
   app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
-      createWindow();
-    }
+    if (BrowserWindow.getAllWindows().length === 0) createWindow();
   });
 });
 
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
-  }
+  if (process.platform !== "darwin") app.quit();
 });
