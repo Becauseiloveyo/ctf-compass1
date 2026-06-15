@@ -15,6 +15,7 @@ const requiredFiles = [
   "desktop/renderer/product-ui.css",
   "desktop/renderer/compact-ui.css",
   "desktop/renderer/sidebar-center.css",
+  "desktop/renderer/sidebar-final.css",
 ];
 
 function assert(condition, message) {
