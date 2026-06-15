@@ -1,4 +1,4 @@
-name: Release preview
+name: Release
 
 on:
   push:
@@ -36,32 +36,31 @@ jobs:
       - name: Upload build artifact backup
         uses: actions/upload-artifact@v4
         with:
-          name: CTF-Compass-preview-windows
+          name: CTF-Compass-v0.9.2-windows
           path: release/*.zip
           if-no-files-found: error
 
       - name: Publish GitHub Release
         uses: ncipollo/release-action@v1
         with:
-          tag: ctf-compass-preview-latest
-          name: CTF Compass 最新预览版
+          tag: v0.9.2
+          name: CTF Compass v0.9.2
           body: |
-            CTF Compass latest preview build.
-
-            This release is updated automatically after each push to master.
+            CTF Compass v0.9.2.
 
             Includes:
-            - Real CTF2 connector backend wiring.
-            - CTF2 challenge browser UI.
+            - CTF2 challenge browser and diagnostic panel.
+            - CTF2 browser-token login workflow.
+            - CTF2 import into the real workspace flow.
             - Manual sidebar toggle restored.
-            - Simplified workspace and settings layout.
+            - Simplified workspace, settings, and CTF2 pages.
             - Adaptive window size and fixed main-content scrolling.
 
             Notes:
             - CTF2 target start and flag submission still require manual confirmation.
             - If the Release asset is not visible, download the backup artifact from the latest Actions run.
           artifacts: release/*.zip
-          prerelease: true
+          prerelease: false
           allowUpdates: true
           replacesArtifacts: true
           removeArtifacts: true
