@@ -6,7 +6,7 @@
   }, 0);
 
   function installCompactStylesheet() {
-    ["./compact-ui.css", "./sidebar-center.css"].forEach((href) => {
+    ["./compact-ui.css", "./sidebar-center.css", "./sidebar-final.css"].forEach((href) => {
       if (document.querySelector(`link[href="${href}"]`)) return;
       const link = document.createElement("link");
       link.rel = "stylesheet";
