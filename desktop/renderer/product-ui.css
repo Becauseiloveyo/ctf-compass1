@@ -1,1 +1,448 @@
-/* Disabled unstable UI preview overrides. Base renderer styles are active again. */
+/* CTF Compass V1 preview: neutral UI pass.
+   Scope: CSS-only first pass for the existing app shell. */
+
+:root {
+  color-scheme: light;
+  --sidebar-width: 72px;
+  --bg: #f6f7f5;
+  --surface: #ffffff;
+  --surface-subtle: #f3f5f4;
+  --surface-muted: #eef1ef;
+  --line: #dfe4e1;
+  --line-strong: #cfd7d3;
+  --text: #17191a;
+  --muted: #68736e;
+  --muted-strong: #3d4541;
+  --accent: #0f9f91;
+  --accent-hover: #0b8f82;
+  --accent-soft: #e6f4f1;
+  --danger: #b4232c;
+  --shadow-sm: none;
+  --shadow-md: 0 10px 28px rgba(15, 23, 42, 0.06);
+  --radius-lg: 16px;
+  --radius-md: 12px;
+  --radius-sm: 10px;
+  --motion-sidebar: 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+body[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #151617;
+  --surface: #1f2023;
+  --surface-subtle: #25262a;
+  --surface-muted: #2a2b30;
+  --line: #333438;
+  --line-strong: #3b3c40;
+  --text: #ececec;
+  --muted: #a3a3a3;
+  --muted-strong: #d4d4d4;
+  --accent: #5cc8bc;
+  --accent-hover: #70d7cc;
+  --accent-soft: #1d3533;
+  --danger: #ff8a8a;
+  --shadow-md: 0 12px 30px rgba(0, 0, 0, 0.28);
+}
+
+/* The app should start compact; hover expands the sidebar. */
+body:not(.sidebar-collapsed),
+body.sidebar-hover-expanded {
+  --sidebar-width: 72px;
+}
+
+body:has(.sidebar:hover),
+body:has(.sidebar:focus-within),
+body.sidebar-hover-expanded {
+  --sidebar-width: 220px;
+}
+
+body {
+  background:
+    radial-gradient(circle at 88% -10%, color-mix(in srgb, var(--accent) 10%, transparent), transparent 34%),
+    var(--bg);
+}
+
+.shell {
+  grid-template-columns: var(--sidebar-width) minmax(0, 1fr);
+}
+
+.sidebar {
+  padding: 18px 12px;
+  background: color-mix(in srgb, var(--surface) 96%, var(--bg));
+  border-right: 1px solid var(--line);
+}
+
+.sidebar-toggle,
+.sidebar-footer,
+.sidebar-state-dot {
+  display: none !important;
+}
+
+.sidebar-top {
+  gap: 18px;
+}
+
+.brand {
+  justify-content: flex-start !important;
+  padding: 0 4px !important;
+}
+
+.brand-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  box-shadow: none;
+}
+
+.brand-copy,
+.nav-group-title,
+.nav-item span:not(.nav-icon):not(.nav-count) {
+  opacity: 0 !important;
+  pointer-events: none;
+  transform: translateX(-4px);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+body:has(.sidebar:hover) .brand-copy,
+body:has(.sidebar:focus-within) .brand-copy,
+body:has(.sidebar:hover) .nav-group-title,
+body:has(.sidebar:focus-within) .nav-group-title,
+body:has(.sidebar:hover) .nav-item span:not(.nav-icon):not(.nav-count),
+body:has(.sidebar:focus-within) .nav-item span:not(.nav-icon):not(.nav-count) {
+  opacity: 1 !important;
+  pointer-events: auto;
+  transform: translateX(0);
+}
+
+.nav {
+  gap: 18px;
+}
+
+.nav-group {
+  gap: 8px;
+}
+
+.nav-group-title {
+  padding: 0 10px;
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+}
+
+.nav-item {
+  min-height: 42px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: var(--muted-strong);
+  background: transparent;
+  border: 1px solid transparent;
+}
+
+.nav-item:hover {
+  background: var(--surface-subtle);
+  border-color: var(--line);
+}
+
+.nav-item.active {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent) 72%, transparent);
+}
+
+.nav-icon {
+  width: 22px;
+  height: 22px;
+  flex: 0 0 22px;
+}
+
+.nav-count {
+  margin-left: auto;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 7px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  line-height: 22px;
+  text-align: center;
+}
+
+.main {
+  padding: 34px 32px 44px;
+}
+
+.header {
+  min-height: 62px;
+  padding: 14px 18px 14px 22px;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: none;
+}
+
+.header-kicker {
+  display: none;
+}
+
+.header-title {
+  margin: 0;
+  font-size: 24px;
+  letter-spacing: -0.03em;
+}
+
+.header-actions {
+  gap: 10px;
+}
+
+.primary-button,
+.secondary-button,
+.danger-button,
+.workbench-tab,
+.scope-badge,
+.signal-chip,
+.chip,
+.tool-chip,
+.score-pill,
+.metric-pill,
+.settings-actions button {
+  border-radius: 10px !important;
+}
+
+.primary-button,
+.secondary-button,
+.danger-button {
+  min-height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--line);
+  box-shadow: none;
+  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
+}
+
+.primary-button {
+  color: color-mix(in srgb, var(--bg) 88%, black);
+  border-color: var(--accent);
+  background: var(--accent);
+  font-weight: 750;
+}
+
+.primary-button:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+  transform: translateY(-1px);
+}
+
+.secondary-button {
+  color: var(--text);
+  background: var(--surface-subtle);
+}
+
+.secondary-button:hover:not(:disabled) {
+  border-color: var(--line-strong);
+  background: var(--surface-muted);
+  transform: translateY(-1px);
+}
+
+.danger-button {
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface));
+  border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
+}
+
+.panel {
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-md);
+}
+
+.panel-head {
+  gap: 12px;
+  margin-bottom: 18px;
+}
+
+.panel-kicker,
+.body-copy,
+.sidebar-note,
+.web-intro,
+.scope-rules,
+.signal-strip,
+.quick-action small,
+.optional-clues summary small {
+  display: none !important;
+}
+
+.panel-title,
+.section-title,
+.compact-head .panel-title {
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.workspace-layout,
+.web-layout,
+.results-overview,
+.content-grid,
+.web-result-grid {
+  gap: 18px;
+}
+
+.solve-console {
+  display: grid;
+  gap: 20px;
+}
+
+.console-hero {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.console-hero h3 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: -0.03em;
+}
+
+.quick-action-grid {
+  gap: 10px;
+}
+
+.quick-action {
+  min-height: 58px;
+  align-items: center;
+  text-align: left;
+  background: var(--surface-subtle);
+}
+
+.primary-quick {
+  color: color-mix(in srgb, var(--bg) 88%, black);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.attachment-section {
+  display: grid;
+  gap: 14px;
+}
+
+.dropzone {
+  min-height: 160px;
+  border-radius: 16px;
+  border: 1px solid var(--line-strong);
+  background: var(--surface-subtle);
+}
+
+.dropzone-icon {
+  width: 42px;
+  height: 42px;
+  color: var(--accent);
+}
+
+.dropzone-title {
+  font-size: 22px;
+}
+
+.dropzone-note {
+  color: var(--muted);
+}
+
+.optional-clues {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.optional-clues summary {
+  padding: 14px 16px;
+}
+
+.form-grid,
+.compact-form {
+  gap: 12px;
+}
+
+.field span,
+.check-row strong {
+  font-size: 13px;
+}
+
+input,
+textarea,
+select {
+  border-radius: 10px !important;
+  border-color: var(--line) !important;
+  background: color-mix(in srgb, var(--surface) 86%, var(--bg)) !important;
+  color: var(--text) !important;
+}
+
+.stat-grid,
+.web-metric-grid {
+  gap: 8px;
+}
+
+.stat-cell,
+.web-metric-grid > div,
+.sandbox-info-card {
+  border-radius: 12px;
+  background: var(--surface-subtle);
+  border: 1px solid var(--line);
+}
+
+.stack-item,
+.detail-list > article,
+.tool-list > article,
+.web-page-list > article,
+.failure-list > article {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.result-map {
+  display: none;
+}
+
+.settings-list {
+  gap: 12px;
+}
+
+.settings-row {
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+.settings-row p {
+  margin-top: 4px;
+  color: var(--muted);
+}
+
+.theme-toggle,
+.theme-track {
+  display: none !important;
+}
+
+#settings-theme-toggle::after {
+  content: " / 跟随系统待接入";
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.status-banner {
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface-subtle);
+}
+
+@media (max-width: 1180px) {
+  .main {
+    padding: 24px;
+  }
+
+  body:has(.sidebar:hover),
+  body:has(.sidebar:focus-within),
+  body.sidebar-hover-expanded {
+    --sidebar-width: 200px;
+  }
+}
