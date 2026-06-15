@@ -1,0 +1,115 @@
+/* Minimal sidebar correction: keep previous rail layout, only fix icon centering and theme button. */
+
+.sidebar-state-dot {
+  display: none !important;
+}
+
+body.sidebar-collapsed .sidebar-toggle {
+  width: 58px !important;
+  height: 56px !important;
+  min-height: 56px !important;
+  margin-inline: auto !important;
+  padding: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+}
+
+body.sidebar-collapsed .sidebar-toggle svg {
+  display: block !important;
+  margin: auto !important;
+}
+
+body.sidebar-collapsed .nav-item {
+  position: relative !important;
+  display: grid !important;
+  place-items: center !important;
+  justify-content: center !important;
+  align-items: center !important;
+}
+
+body.sidebar-collapsed .nav-item > span:not(.nav-icon):not(.nav-count) {
+  display: none !important;
+}
+
+body.sidebar-collapsed .nav-item .nav-icon {
+  position: absolute !important;
+  left: 50% !important;
+  top: 50% !important;
+  width: 24px !important;
+  height: 24px !important;
+  margin: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  transform: translate(-50%, -50%) !important;
+}
+
+body.sidebar-collapsed .nav-item .nav-icon svg {
+  display: block !important;
+  margin: auto !important;
+}
+
+.sidebar-footer {
+  display: flex !important;
+  margin-top: auto !important;
+  border-top: 0 !important;
+  box-shadow: none !important;
+}
+
+.sidebar-footer .meta-row,
+.sidebar-footer .sidebar-row:first-child > div {
+  display: none !important;
+}
+
+.sidebar-footer .sidebar-row:first-child {
+  width: auto !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+body:not(.sidebar-collapsed) .sidebar-footer {
+  justify-content: flex-start !important;
+  padding: 12px 0 22px 24px !important;
+}
+
+body.sidebar-collapsed .sidebar-footer {
+  justify-content: center !important;
+  padding: 12px 0 20px !important;
+}
+
+.theme-toggle {
+  width: 56px !important;
+  height: 56px !important;
+  min-width: 56px !important;
+  min-height: 56px !important;
+  display: grid !important;
+  place-items: center !important;
+  border: 1px solid var(--line) !important;
+  border-radius: 18px !important;
+  background: var(--surface-subtle) !important;
+  color: var(--accent) !important;
+  box-shadow: none !important;
+}
+
+.theme-toggle .theme-track {
+  display: none !important;
+}
+
+.theme-toggle::before {
+  content: "☾";
+  display: block;
+  font-size: 22px;
+  line-height: 1;
+  font-weight: 800;
+}
+
+body[data-theme="dark"] .theme-toggle::before {
+  content: "☀";
+}
+
+.theme-toggle:hover {
+  border-color: color-mix(in srgb, var(--accent) 36%, var(--line)) !important;
+  background: var(--accent-soft) !important;
+}
