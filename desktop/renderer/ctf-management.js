@@ -1,6 +1,9 @@
 (function () {
   installCompactStylesheet();
-  window.setTimeout(installCtf2SettingsCard, 0);
+  window.setTimeout(() => {
+    installCtf2SettingsCard();
+    installCtf2CategoryDropdownSkin();
+  }, 0);
 
   function installCompactStylesheet() {
     if (document.querySelector('link[href="./compact-ui.css"]')) return;
@@ -8,6 +11,81 @@
     link.rel = "stylesheet";
     link.href = "./compact-ui.css";
     document.head.append(link);
+  }
+
+  function installCtf2CategoryDropdownSkin() {
+    const select = document.getElementById("ctf2-category-select");
+    if (!select || document.getElementById("ctf2-category-skin")) return;
+
+    const field = select.closest(".field");
+    if (field) {
+      field.classList.add("ctf2-native-category-field");
+    }
+
+    const root = document.createElement("div");
+    root.id = "ctf2-category-skin";
+    root.className = "ctf2-category-skin";
+    root.innerHTML = `
+      <button id="ctf2-category-button" class="ctf2-category-button" type="button" aria-expanded="false">
+        <span class="ctf2-category-label">题型</span>
+        <strong id="ctf2-category-current">全部</strong>
+        <span class="ctf2-category-caret">▾</span>
+      </button>
+      <div id="ctf2-category-menu" class="ctf2-category-menu" hidden></div>
+    `;
+    (field || select).after(root);
+
+    const button = root.querySelector("#ctf2-category-button");
+    const current = root.querySelector("#ctf2-category-current");
+    const menu = root.querySelector("#ctf2-category-menu");
+
+    function labelOf(option) {
+      return option?.textContent?.trim() || option?.value || "全部";
+    }
+
+    function sync() {
+      const options = Array.from(select.options || []);
+      const active = options.find((option) => option.value === select.value) || options[0];
+      current.textContent = labelOf(active);
+      menu.innerHTML = "";
+      options.forEach((option) => {
+        const item = document.createElement("button");
+        item.type = "button";
+        item.className = `ctf2-category-option${option.value === select.value ? " is-active" : ""}`;
+        item.textContent = labelOf(option);
+        item.addEventListener("click", () => {
+          select.value = option.value;
+          select.dispatchEvent(new Event("change", { bubbles: true }));
+          closeMenu();
+          sync();
+        });
+        menu.append(item);
+      });
+    }
+
+    function openMenu() {
+      menu.hidden = false;
+      button.setAttribute("aria-expanded", "true");
+      root.classList.add("is-open");
+    }
+
+    function closeMenu() {
+      menu.hidden = true;
+      button.setAttribute("aria-expanded", "false");
+      root.classList.remove("is-open");
+    }
+
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      if (menu.hidden) openMenu();
+      else closeMenu();
+    });
+    document.addEventListener("click", (event) => {
+      if (!root.contains(event.target)) closeMenu();
+    });
+    select.addEventListener("change", sync);
+    new MutationObserver(sync).observe(select, { childList: true, subtree: true, attributes: true });
+    sync();
   }
 
   function installCtf2SettingsCard() {
