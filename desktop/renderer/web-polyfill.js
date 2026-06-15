@@ -134,6 +134,7 @@
         </div>
         <div class="ctf2-account-actions">
           <span id="ctf2-account-status" class="scope-badge">检查登录状态...</span>
+          <button id="ctf2-diagnose-button" class="secondary-button" type="button">诊断连接</button>
           <button id="ctf2-login-button" class="secondary-button" type="button">应用内登录</button>
           <button id="ctf2-system-login-button" class="secondary-button" type="button">浏览器登录</button>
           <button id="ctf2-logout-button" class="secondary-button danger-button" type="button">退出登录</button>
@@ -148,6 +149,7 @@
             <label class="field ctf2-token-field" for="ctf2-token-input"><span>粘贴 token</span><input id="ctf2-token-input" type="password" placeholder="在这里粘贴 CTF2 token" autocomplete="off" /></label>
             <button id="ctf2-token-import-button" class="primary-button" type="button">验证并连接</button>
           </div>
+          <div id="ctf2-diagnostic-list" class="stack-list compact-stack" hidden></div>
         </div>
       </details>
 
@@ -176,6 +178,8 @@
 
     const el = {
       account: view.querySelector("#ctf2-account-status"),
+      diagnose: view.querySelector("#ctf2-diagnose-button"),
+      diagnosticList: view.querySelector("#ctf2-diagnostic-list"),
       login: view.querySelector("#ctf2-login-button"),
       systemLogin: view.querySelector("#ctf2-system-login-button"),
       logout: view.querySelector("#ctf2-logout-button"),
@@ -210,7 +214,7 @@
 
     function setBusy(busy) {
       state.busy = busy;
-      [el.login, el.systemLogin, el.logout, el.importToken, el.refresh, el.importChallenge].forEach((button) => {
+      [el.login, el.systemLogin, el.logout, el.importToken, el.refresh, el.importChallenge, el.diagnose].forEach((button) => {
         if (!button) return;
         button.disabled = busy || (button === el.logout && !state.status?.connected) || (button === el.importChallenge && !state.selected?.files?.length);
       });
@@ -317,6 +321,53 @@
       renderStatus();
     }
 
+    function renderDiagnostic(rows) {
+      el.diagnosticList.hidden = false;
+      el.diagnosticList.innerHTML = "";
+      rows.forEach((row) => {
+        const item = document.createElement("div");
+        item.className = "stack-item";
+        item.innerHTML = `<strong>${escapeHtml(row.title)}</strong><p>${escapeHtml(row.note)}</p>`;
+        el.diagnosticList.append(item);
+      });
+    }
+
+    async function diagnoseConnection() {
+      setBusy(true);
+      const rows = [];
+      try {
+        const status = await window.ctfCompass.getCtf2Status?.();
+        state.status = status;
+        rows.push({
+          title: status?.connected ? "登录状态正常" : "未登录或 token 已失效",
+          note: status?.connected
+            ? `已识别账号${status.profile?.username ? `：${status.profile.username}` : ""}`
+            : status?.error || "题库可公开浏览；下载附件需要应用内登录或浏览器 token。",
+        });
+        renderStatus();
+      } catch (error) {
+        rows.push({ title: "登录状态检查失败", note: error.message });
+      }
+
+      try {
+        const result = await window.ctfCompass.listCtf2Challenges?.({ force: true, limit: 20 });
+        rows.push({ title: "公开题库接口正常", note: `成功读取题库，当前匹配 ${result?.total ?? result?.challenges?.length ?? 0} 道。` });
+      } catch (error) {
+        rows.push({ title: "公开题库接口失败", note: error.message });
+      }
+
+      try {
+        const sandbox = await window.ctfCompass.getSandboxInfo?.();
+        rows.push({ title: "本地沙盒正常", note: sandbox?.downloads ? `下载目录：${sandbox.downloads}` : "沙盒目录可访问。" });
+      } catch (error) {
+        rows.push({ title: "本地沙盒检查失败", note: error.message });
+      }
+
+      renderDiagnostic(rows);
+      setBusy(false);
+      setStatus("CTF2 连接诊断已完成。若题库正常但下载失败，重点检查 token 是否过期。 ");
+    }
+
     async function loadChallenges(force = false) {
       if (!window.ctfCompass.listCtf2Challenges) {
         el.count.textContent = "当前构建没有接入 CTF2 题库接口。";
@@ -370,9 +421,18 @@
         setValue("tags-input", [challenge.category, "CTF2", challenge.groundName || "BUUCTF"].filter(Boolean).join(" "));
         setValue("description-input", challenge.description || "");
         setValue("notes-input", `CTF2 导入：${challenge.groundName || "BUUCTF"}\n附件已下载到沙盒。`);
-        renderImportedArtifacts(imported.artifacts || []);
+        if (typeof window.appendPreparedArtifacts === "function") {
+          await window.appendPreparedArtifacts(Promise.resolve(imported.artifacts || []));
+        } else {
+          renderImportedArtifacts(imported.artifacts || []);
+        }
         activateWorkspaceView();
-        setStatus("附件已从 CTF2 下载到沙盒，并写入当前工作台。可继续运行自动求解。");
+        if (typeof window.runAnalysis === "function" && (imported.artifacts || []).length) {
+          window.setTimeout(() => window.runAnalysis(false, "CTF2 附件已导入并完成自动求解。"), 0);
+          setStatus("附件已从 CTF2 下载到沙盒，正在自动求解。 ");
+        } else {
+          setStatus("附件已从 CTF2 下载到沙盒，并写入当前工作台。可继续运行自动求解。 ");
+        }
       } catch (error) {
         setStatus(`CTF2 导入失败：${error.message}`, "error");
         await refreshStatus().catch(() => {});
@@ -383,7 +443,10 @@
 
     function setValue(id, value) {
       const node = document.getElementById(id);
-      if (node) node.value = value;
+      if (node) {
+        node.value = value;
+        node.dispatchEvent(new Event("input", { bubbles: true }));
+      }
     }
 
     function renderImportedArtifacts(artifacts) {
@@ -410,6 +473,7 @@
       if (title) title.textContent = "以附件为中心的 CTF 工作台";
     }
 
+    el.diagnose.addEventListener("click", diagnoseConnection);
     el.login.addEventListener("click", async () => {
       setBusy(true);
       try {
