@@ -6,11 +6,13 @@
   }, 0);
 
   function installCompactStylesheet() {
-    if (document.querySelector('link[href="./compact-ui.css"]')) return;
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "./compact-ui.css";
-    document.head.append(link);
+    ["./compact-ui.css", "./sidebar-polish.css"].forEach((href) => {
+      if (document.querySelector(`link[href="${href}"]`)) return;
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      link.href = href;
+      document.head.append(link);
+    });
   }
 
   function installCtf2CategoryDropdownSkin() {
