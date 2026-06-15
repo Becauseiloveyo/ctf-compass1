@@ -1,5 +1,5 @@
 /* CTF Compass original-style V1 preview overrides.
-   Scope: keep the existing light/green app identity and add the CTF2 connector surface. */
+   Keep the existing light/green identity, restore manual sidebar control, and keep CTF2 close to the original connector layout. */
 
 :root {
   --accent: #0d8076;
@@ -36,12 +36,26 @@ body {
   padding: clamp(18px, 2vw, 28px);
 }
 
-.sidebar-toggle {
-  display: none !important;
+/* Disable hover-auto expansion. Only the manual button should expand/collapse the rail. */
+body.sidebar-collapsed.sidebar-hover-expanded {
+  --sidebar-width: 88px;
 }
 
-.sidebar-footer {
-  display: none !important;
+body.sidebar-collapsed.sidebar-hover-expanded .brand-copy,
+body.sidebar-collapsed.sidebar-hover-expanded .nav-item > span:not(.nav-icon):not(.nav-count),
+body.sidebar-collapsed.sidebar-hover-expanded .sidebar-footer {
+  opacity: 0 !important;
+  pointer-events: none !important;
+  width: 0 !important;
+}
+
+body.sidebar-collapsed.sidebar-hover-expanded .brand {
+  justify-content: center !important;
+  padding: 0 !important;
+}
+
+body.sidebar-collapsed.sidebar-hover-expanded .nav-item {
+  justify-content: center !important;
 }
 
 .sidebar {
@@ -49,7 +63,21 @@ body {
   overflow: hidden;
 }
 
-/* Remove the English category labels in the left rail: Solve / Evidence / System. */
+.sidebar-toggle {
+  display: grid !important;
+  justify-self: center;
+  box-shadow: none !important;
+}
+
+body:not(.sidebar-collapsed) .sidebar-toggle {
+  justify-self: end;
+}
+
+.sidebar-footer {
+  display: none !important;
+}
+
+/* Remove English category labels but keep equal vertical rhythm. */
 .nav-group-title {
   display: none !important;
 }
@@ -58,31 +86,35 @@ body {
   height: 100%;
   min-height: 0;
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  align-content: stretch;
+  grid-template-rows: auto auto minmax(0, 1fr);
+  align-content: start;
+  gap: 14px;
 }
 
 .nav {
   min-height: 0;
-  height: 100%;
-  display: grid;
-  grid-template-rows: auto auto auto;
-  align-content: space-between;
-  gap: clamp(10px, 3vh, 34px);
-  padding: clamp(18px, 4vh, 54px) 0 clamp(10px, 3vh, 30px);
+  height: auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  gap: 10px;
+  padding: 6px 0 0;
 }
 
 .nav-group {
-  gap: clamp(6px, 1.1vh, 12px);
+  display: grid;
+  gap: 8px;
 }
 
 .nav-item {
-  min-height: clamp(40px, 5.1vh, 48px);
+  min-height: 44px;
 }
 
 .primary-button,
 .secondary-button,
 .danger-button,
+.ctf2-challenge-item,
+.ctf2-detail-meta span,
 .ctf2-problem,
 .ctf2-chip-row span {
   border-radius: 12px !important;
@@ -232,7 +264,7 @@ body[data-view="ctf2"] .header-actions {
   gap: 10px;
 }
 
-/* Remove noisy English micro labels from the preview panels while keeping the original layout. */
+/* CTF2: use the original connector layout, but restyle it to match the current lighter app surface. */
 .ctf2-view .panel-kicker {
   display: none !important;
 }
@@ -245,193 +277,174 @@ body[data-view="ctf2"] .header-actions {
   display: block;
 }
 
-.ctf2-connector-panel {
-  margin-bottom: 18px;
-}
-
-.ctf2-head {
+.ctf2-toolbar {
+  display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 18px;
   margin-bottom: 16px;
+  padding: 18px 20px;
 }
 
-.ctf2-actions,
-.ctf2-detail-actions,
-.ctf2-dialog-actions,
-.ctf2-search-row {
+.ctf2-toolbar .body-copy {
+  max-width: 680px;
+  margin-top: 6px;
+}
+
+.ctf2-account-actions,
+.ctf2-filters,
+.ctf2-detail-meta {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex-wrap: wrap;
 }
 
-.ctf2-status-card,
-.ctf2-training-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 18px 20px;
-  border: 1px solid var(--line);
-  border-radius: 16px;
-  background: var(--surface-subtle);
+.ctf2-token-help {
+  margin-bottom: 16px;
+  padding: 0;
+  overflow: hidden;
 }
 
-.ctf2-status-card strong,
-.ctf2-training-card strong {
-  display: block;
-  margin-bottom: 4px;
+.ctf2-token-help summary {
+  padding: 13px 18px;
+  color: var(--muted-strong);
+  font-weight: 720;
+  cursor: pointer;
+  user-select: none;
+}
+
+.ctf2-token-help[open] summary {
+  border-bottom: 1px solid var(--line);
   color: var(--text);
-  font-size: 18px;
 }
 
-.ctf2-status-card p,
-.ctf2-training-card p,
-.ctf2-description,
-.ctf2-dialog-note {
+.ctf2-token-help-body {
+  display: grid;
+  gap: 12px;
+  padding: 15px 18px 18px;
+}
+
+.ctf2-token-help-body .body-copy {
+  max-width: 920px;
   margin: 0;
-  color: var(--muted);
 }
 
-.ctf2-status-dot {
-  width: 12px;
-  height: 12px;
-  flex: 0 0 12px;
-  border-radius: 999px;
-  background: var(--warning);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--warning) 14%, transparent);
+.ctf2-token-help code {
+  padding: 2px 5px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-subtle);
+  color: var(--text);
 }
 
-.ctf2-status-dot.connected {
-  background: var(--accent);
-  box-shadow: 0 0 0 6px color-mix(in srgb, var(--accent) 16%, transparent);
+.ctf2-token-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1fr) auto;
+  gap: 10px;
+  align-items: end;
+}
+
+.ctf2-token-field {
+  margin: 0;
+}
+
+.ctf2-token-field input {
+  min-width: 0;
+  min-height: 42px;
 }
 
 .ctf2-layout {
   display: grid;
-  grid-template-columns: minmax(360px, 0.95fr) minmax(420px, 1.05fr);
-  gap: 18px;
+  grid-template-columns: minmax(0, 1fr) clamp(310px, 30vw, 410px);
+  gap: clamp(12px, 1.4vw, 20px);
+  align-items: start;
 }
 
-.ctf2-list-panel,
+.ctf2-browser-panel,
 .ctf2-detail-panel {
-  min-height: 600px;
+  padding: 20px;
 }
 
-.ctf2-search-row {
-  margin-bottom: 18px;
+.ctf2-detail-panel {
+  position: sticky;
+  top: 96px;
 }
 
-.ctf2-search {
-  width: min(360px, 100%);
-  min-height: 40px;
-}
-
-.ctf2-problem-list {
+.ctf2-filters {
   display: grid;
-  gap: 10px;
+  grid-template-columns: minmax(220px, 1fr) 170px auto;
+  align-items: end;
+  margin-bottom: 20px;
 }
 
-.ctf2-problem {
+.ctf2-filters .field {
+  margin: 0;
+}
+
+.ctf2-challenge-list {
+  display: grid;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.ctf2-challenge-item {
   width: 100%;
-  min-height: 68px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 4px 16px;
+  gap: 12px;
   align-items: center;
-  padding: 13px 16px;
-  text-align: left;
-  color: var(--text);
+  padding: 14px 15px;
   border: 1px solid var(--line);
-  background: var(--surface-subtle);
+  color: var(--text);
+  background: var(--surface);
+  text-align: left;
+  cursor: pointer;
 }
 
-.ctf2-problem:hover {
-  border-color: var(--line-strong);
-  background: var(--surface-muted);
-}
-
-.ctf2-problem.active {
+.ctf2-challenge-item:hover,
+.ctf2-challenge-item.is-selected {
   border-color: var(--accent);
   background: var(--accent-soft);
 }
 
-.ctf2-problem strong {
+.ctf2-challenge-copy {
   min-width: 0;
+}
+
+.ctf2-challenge-copy strong {
+  display: block;
+  margin-bottom: 5px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.ctf2-problem span {
+.ctf2-challenge-copy small,
+.ctf2-challenge-stats {
   color: var(--muted);
-  font-size: 13px;
-}
-
-.ctf2-problem em {
-  grid-row: 1 / span 2;
-  grid-column: 2;
-  padding: 5px 10px;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  background: var(--surface);
-  color: var(--muted);
-  font-style: normal;
   font-size: 12px;
 }
 
-.ctf2-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin: -4px 0 22px;
+.ctf2-challenge-stats {
+  text-align: right;
+  white-space: nowrap;
 }
 
-.ctf2-chip-row span {
-  padding: 6px 12px;
+.ctf2-detail-meta {
+  margin: 14px 0;
+}
+
+.ctf2-detail-meta span {
+  padding: 5px 9px;
+  border: 1px solid var(--line);
   color: var(--muted-strong);
-  background: var(--surface-subtle);
-  border: 1px solid var(--line);
   font-size: 12px;
 }
 
-.ctf2-description {
-  margin-bottom: 28px;
-  font-size: 16px;
-}
-
-.ctf2-training-card {
-  align-items: flex-start;
-  justify-content: flex-start;
-  margin-top: 34px;
-}
-
-.ctf2-cookie-dialog {
-  width: min(620px, calc(100vw - 48px));
-  padding: 0;
-  border: 1px solid var(--line);
-  border-radius: 20px;
-  background: var(--surface);
-  color: var(--text);
-  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.24);
-}
-
-.ctf2-cookie-dialog::backdrop {
-  background: rgba(15, 23, 42, 0.36);
-  backdrop-filter: blur(3px);
-}
-
-.ctf2-cookie-form {
-  display: grid;
-  gap: 16px;
-  padding: 24px;
-}
-
-.ctf2-cookie-form textarea {
-  resize: vertical;
-}
-
-.ctf2-dialog-actions {
-  justify-content: flex-end;
+.ctf2-import-button {
+  width: 100%;
+  margin-top: 18px;
 }
 
 .ctf2-nav-item .nav-icon svg path {
@@ -441,6 +454,22 @@ body[data-view="ctf2"] .header-actions {
 @media (max-width: 1180px) {
   .ctf2-layout,
   #settings-view .sandbox-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ctf2-detail-panel {
+    position: static;
+  }
+}
+
+@media (max-width: 720px) {
+  .ctf2-toolbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .ctf2-filters,
+  .ctf2-token-row {
     grid-template-columns: 1fr;
   }
 }
