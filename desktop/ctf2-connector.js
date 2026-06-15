@@ -287,7 +287,9 @@ async function fetchPublicChallenges(force = false) {
   if (!force && publicPracticeCache && Date.now() - publicPracticeCache.createdAt < CACHE_TTL_MS) {
     return publicPracticeCache.challenges;
   }
-  const payload = await requestJson("/api/v1/public/practice/");
+  // Public practice can be browsed without a login token. Do not send a stale token here;
+  // otherwise an expired token can break read-only browsing even though the endpoint is public.
+  const payload = await requestJson("/api/v1/public/practice/", { tokenOverride: "" });
   const challenges = flattenPracticeGrounds(payload);
   publicPracticeCache = { createdAt: Date.now(), challenges };
   return challenges;
@@ -323,11 +325,12 @@ async function listChallenges(filters = {}) {
 }
 
 async function downloadFile(challenge, file, downloadRoot) {
+  const token = loadToken();
   const url = `/api/v1/practice/${encodeURIComponent(challenge.groundId)}/challenges/${encodeURIComponent(challenge.id)}/files/${encodeURIComponent(file.id)}/?is_private=false`;
   const response = await connectorSession().fetch(`${CTF2_ORIGIN}${url}`, {
     headers: {
       Accept: "application/octet-stream",
-      ...(loadToken() ? { Authorization: `Bearer ${loadToken()}` } : {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
   });
   if (!response.ok) {
