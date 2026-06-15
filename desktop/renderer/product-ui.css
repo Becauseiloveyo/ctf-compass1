@@ -29,8 +29,24 @@ body[data-theme="dark"] {
   display: none !important;
 }
 
+.sidebar {
+  min-height: 100vh;
+}
+
+.sidebar-top {
+  min-height: calc(100vh - 32px);
+  display: grid;
+  grid-template-rows: auto 1fr;
+  align-content: stretch;
+}
+
 .nav {
-  gap: 10px;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 22px 0 10px;
 }
 
 .nav-group {
@@ -91,6 +107,101 @@ body[data-theme="dark"] .primary-button {
   color: var(--danger);
   background: color-mix(in srgb, var(--danger) 7%, var(--surface));
   border-color: color-mix(in srgb, var(--danger) 24%, var(--line));
+}
+
+/* Workspace: keep the same structure, but remove repeated explanatory copy. */
+#workspace-view .panel-kicker,
+#workspace-view .body-copy,
+#workspace-view .signal-strip,
+#workspace-view .quick-action small,
+#workspace-view .dropzone-note,
+#workspace-view .optional-clues summary small {
+  display: none !important;
+}
+
+#workspace-view .console-hero {
+  padding: 0;
+  margin-bottom: 10px;
+  background: transparent;
+  border: 0;
+}
+
+#workspace-view .console-hero h3 {
+  margin: 0;
+  font-size: 22px;
+  line-height: 1.35;
+}
+
+#workspace-view .quick-action-grid {
+  gap: 8px;
+  margin: 10px 0 18px;
+}
+
+#workspace-view .quick-action {
+  min-height: 44px;
+  padding: 9px 14px;
+  align-items: center;
+}
+
+#workspace-view .attachment-section {
+  gap: 12px;
+}
+
+#workspace-view .dropzone {
+  min-height: 138px;
+}
+
+#workspace-view .workspace-submit-row {
+  padding-top: 14px;
+}
+
+#workspace-view .compact-panel {
+  padding: 22px;
+}
+
+/* Settings: keep only important controls. */
+#settings-view .settings-list > .settings-row:nth-child(2),
+#settings-view .settings-list > .settings-row:nth-child(3),
+#settings-view .settings-list > .settings-row:nth-child(4),
+#settings-view .settings-list > .settings-row:nth-child(5) {
+  display: none !important;
+}
+
+#settings-view .panel-kicker {
+  display: none !important;
+}
+
+#settings-view .panel {
+  max-width: 1080px;
+}
+
+#settings-view .settings-list {
+  gap: 14px;
+}
+
+#settings-view .settings-row {
+  padding: 18px 20px;
+}
+
+#settings-view .settings-row p {
+  max-width: 620px;
+  margin-top: 4px;
+}
+
+#settings-view .sandbox-row {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(360px, auto) auto;
+  align-items: center;
+  gap: 16px;
+}
+
+#settings-view .settings-row-stack {
+  gap: 14px;
+}
+
+#settings-view .sandbox-info-grid {
+  grid-template-columns: minmax(220px, 1fr) 160px;
+  gap: 10px;
 }
 
 /* Remove noisy English micro labels from the preview panels while keeping the original layout. */
@@ -305,7 +416,8 @@ body[data-view="ctf2"] .header-actions {
 }
 
 @media (max-width: 1180px) {
-  .ctf2-layout {
+  .ctf2-layout,
+  #settings-view .sandbox-row {
     grid-template-columns: 1fr;
   }
 }
