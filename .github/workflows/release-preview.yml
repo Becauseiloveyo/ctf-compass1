@@ -1,0 +1,54 @@
+name: Release preview
+
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    name: Build Windows ZIP
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build Windows ZIP
+        run: npm run dist:zip
+
+      - name: List release files
+        shell: pwsh
+        run: Get-ChildItem -Recurse release | Select-Object FullName, Length
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.9.1-ctf2-preview-${{ github.run_number }}
+          name: CTF Compass v0.9.1 CTF2 Preview ${{ github.run_number }}
+          body: |
+            CTF2 connector preview build.
+
+            Changes:
+            - Adds a CTF2 connector entry.
+            - Adds Cookie login preview UI.
+            - Keeps the original light/green UI direction.
+            - Refines buttons without changing the app into a new design.
+
+            Notes:
+            - This is a preview release.
+            - Real CTF2 backend sync/download/start-target integration is not fully wired yet.
+          files: release/*.zip
+          draft: false
+          prerelease: true
