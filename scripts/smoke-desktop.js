@@ -9,9 +9,11 @@ const requiredFiles = [
   "desktop/ctf2-connector.js",
   "desktop/renderer/renderer.js",
   "desktop/renderer/web-polyfill.js",
+  "desktop/renderer/ctf-management.js",
   "desktop/renderer/index.html",
   "desktop/renderer/styles.css",
   "desktop/renderer/product-ui.css",
+  "desktop/renderer/compact-ui.css",
 ];
 
 function assert(condition, message) {
@@ -30,7 +32,14 @@ for (const file of requiredFiles) {
   read(file);
 }
 
-for (const file of ["desktop/renderer/renderer.js", "desktop/renderer/web-polyfill.js", "desktop/preload.js", "desktop/ctf2-connector.js", "desktop/main.js"]) {
+for (const file of [
+  "desktop/renderer/renderer.js",
+  "desktop/renderer/web-polyfill.js",
+  "desktop/renderer/ctf-management.js",
+  "desktop/preload.js",
+  "desktop/ctf2-connector.js",
+  "desktop/main.js",
+]) {
   try {
     new vm.Script(read(file), { filename: file });
   } catch (error) {
@@ -47,6 +56,7 @@ const preload = read("desktop/preload.js");
   "checkForUpdates",
   "clearCtf2Data",
   "getCtf2History",
+  "revealCtf2Downloads",
 ].forEach((apiName) => {
   assert(preload.includes(apiName), `preload.js does not expose ${apiName}`);
 });
@@ -59,6 +69,7 @@ const main = read("desktop/main.js");
   "ctf2-import-challenge",
   "ctf2-history",
   "ctf2-clear-data",
+  "ctf2-reveal-downloads",
   "check-for-updates",
 ].forEach((channel) => {
   assert(main.includes(channel), `main.js is missing IPC channel ${channel}`);
@@ -66,6 +77,7 @@ const main = read("desktop/main.js");
 
 const html = read("desktop/renderer/index.html");
 assert(html.includes('<script src="./web-polyfill.js"></script>'), "index.html should load web-polyfill as a classic script");
+assert(html.includes('<script src="./ctf-management.js"></script>'), "index.html should load ctf-management as a classic script");
 assert(html.includes('<script src="./renderer.js"></script>'), "index.html should load renderer as a classic script");
 
 console.log("desktop smoke test passed");
