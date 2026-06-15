@@ -3,6 +3,7 @@ const { app, BrowserWindow, dialog, ipcMain, screen, shell } = require("electron
 const path = require("path");
 const { analyzeChallenge, prepareArtifactsFromEntries, runArtifactAction } = require("./analyzer");
 const { analyzeWebTarget } = require("./web-analyzer");
+const ctf2Connector = require("./ctf2-connector");
 
 const isDev = !app.isPackaged;
 const SANDBOX_DIR_NAME = "sandbox";
@@ -171,6 +172,19 @@ ipcMain.handle("pick-folder", async () => selectFolder());
 ipcMain.handle("prepare-artifacts", async (_event, entryPaths) => prepareArtifactsFromEntries(entryPaths || []));
 ipcMain.handle("analyze-challenge", async (_event, payload) => analyzeChallenge(payload || {}, buildRunOutputRoot()));
 ipcMain.handle("analyze-web-target", async (_event, payload) => analyzeWebTarget(payload || {}, buildRunOutputRoot()));
+ipcMain.handle("ctf2-status", async () => ctf2Connector.getStatus());
+ipcMain.handle("ctf2-login", async (event) => ctf2Connector.openLogin(BrowserWindow.fromWebContents(event.sender)));
+ipcMain.handle("ctf2-open-system-login", async () => ctf2Connector.openSystemLogin());
+ipcMain.handle("ctf2-import-token", async (_event, token) => ctf2Connector.importToken(token));
+ipcMain.handle("ctf2-logout", async () => ctf2Connector.logout());
+ipcMain.handle("ctf2-list-challenges", async (_event, payload) => ctf2Connector.listChallenges(payload || {}));
+ipcMain.handle("ctf2-import-challenge", async (_event, payload) => {
+  const imported = await ctf2Connector.importChallenge(payload || {}, sandboxSubPath("downloads"));
+  return {
+    ...imported,
+    artifacts: prepareArtifactsFromEntries(imported.paths),
+  };
+});
 ipcMain.handle("run-artifact-action", async (_event, payload) =>
   runArtifactAction(payload?.actionId, payload?.filePath, buildRunOutputRoot()),
 );
@@ -226,19 +240,21 @@ ipcMain.handle("export-report", async (_event, payload) => {
   const result = await dialog.showSaveDialog({
     title: "Export Markdown report",
     defaultPath: path.join(app.getPath("documents"), suggestedName),
-    filters: [{ name: "Markdown", extensions: ["md"] }],
+    filters: [
+      { name: "Markdown", extensions: ["md"] },
+      { name: "Text", extensions: ["txt"] },
+    ],
   });
 
   if (result.canceled || !result.filePath) {
-    return null;
+    return { canceled: true };
   }
 
   ensureParentDir(result.filePath);
   fs.writeFileSync(result.filePath, content, "utf8");
   return { filePath: result.filePath };
 });
-
-ipcMain.handle("get-meta", async () => ({
+ipcMain.handle("app-meta", async () => ({
   version: app.getVersion(),
   packaged: app.isPackaged,
   mode: isDev ? "development" : "production",
@@ -247,17 +263,19 @@ ipcMain.handle("get-meta", async () => ({
 
 app.whenReady().then(() => {
   ensureSandboxLayout();
+  cleanupLegacyRuntimeData();
+  clearSessionWorkspace();
   createWindow();
+
+  app.on("activate", () => {
+    if (BrowserWindow.getAllWindows().length === 0) {
+      createWindow();
+    }
+  });
 });
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
-  }
-});
-
-app.on("activate", () => {
-  if (BrowserWindow.getAllWindows().length === 0) {
-    createWindow();
   }
 });
