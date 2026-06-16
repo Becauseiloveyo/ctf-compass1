@@ -77,6 +77,14 @@ const main = read("desktop/main.js");
 });
 
 const html = read("desktop/renderer/index.html");
+[
+  '<link rel="stylesheet" href="./styles.css" />',
+  '<link rel="stylesheet" href="./product-ui.css" />',
+  '<link rel="stylesheet" href="./compact-ui.css" />',
+  '<link rel="stylesheet" href="./sidebar-stable.css" />',
+].forEach((linkTag) => {
+  assert(html.includes(linkTag), `index.html should load ${linkTag}`);
+});
 assert(html.includes('<script src="./web-polyfill.js"></script>'), "index.html should load web-polyfill as a classic script");
 assert(html.includes('<script src="./ctf-management.js"></script>'), "index.html should load ctf-management as a classic script");
 assert(html.includes('<script src="./renderer.js"></script>'), "index.html should load renderer as a classic script");
