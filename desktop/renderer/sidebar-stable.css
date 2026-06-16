@@ -1,10 +1,11 @@
-/* Stable sidebar: one source of truth. No hover expansion and no moving icons. */
+/* Stable sidebar: one source of truth. Hover does not expand; only manual collapse changes the rail. */
 
 :root {
   --sidebar-rail-x: 30px;
   --sidebar-collapsed-item: 56px;
   --sidebar-toggle-size: 42px;
   --sidebar-theme-size: 46px;
+  --sidebar-motion: 220ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .sidebar-state-dot,
@@ -12,22 +13,36 @@
   display: none !important;
 }
 
-.shell,
-.sidebar,
+.shell {
+  transition: grid-template-columns var(--sidebar-motion) !important;
+}
+
+.sidebar {
+  display: flex !important;
+  flex-direction: column !important;
+  height: 100vh !important;
+  padding: 16px 14px !important;
+  overflow: hidden !important;
+  transition: background-color 160ms ease, border-color 160ms ease !important;
+}
+
 .sidebar-top,
 .nav,
 .nav-group,
-.nav-item,
-.nav-icon,
 .brand,
 .brand-mark,
-.brand-copy,
+.nav-item,
+.nav-icon,
 .sidebar-toggle,
 .sidebar-footer,
 .sidebar-row,
-.theme-toggle,
+.theme-toggle {
+  transition: background-color 160ms ease, border-color 160ms ease, color 160ms ease !important;
+}
+
+.brand-copy,
 .nav-item > span:not(.nav-icon):not(.nav-count) {
-  transition: none !important;
+  transition: opacity 170ms ease, transform 170ms ease !important;
 }
 
 body.sidebar-collapsed.sidebar-hover-expanded {
@@ -42,14 +57,6 @@ body.sidebar-collapsed.sidebar-hover-expanded .sidebar {
   width: 88px !important;
 }
 
-.sidebar {
-  display: flex !important;
-  flex-direction: column !important;
-  height: 100vh !important;
-  padding: 16px 14px !important;
-  overflow: hidden !important;
-}
-
 .sidebar-top,
 body.sidebar-collapsed .sidebar-top,
 body.sidebar-collapsed.sidebar-hover-expanded .sidebar-top {
@@ -61,7 +68,6 @@ body.sidebar-collapsed.sidebar-hover-expanded .sidebar-top {
   gap: 16px !important;
 }
 
-/* The hamburger is the rail reference. Its center is x=30px inside the sidebar content box. */
 .sidebar-toggle,
 body:not(.sidebar-collapsed) .sidebar-toggle,
 body.sidebar-collapsed .sidebar-toggle,
@@ -85,7 +91,6 @@ body.sidebar-collapsed.sidebar-hover-expanded .sidebar-toggle {
   display: block !important;
 }
 
-/* Brand icon is fixed on the same rail. Text only exists in expanded state. */
 .brand,
 body:not(.sidebar-collapsed) .brand,
 body.sidebar-collapsed .brand,
@@ -121,7 +126,7 @@ body.sidebar-hover-expanded .brand-copy {
   padding-top: 2px !important;
   width: auto !important;
   opacity: 1 !important;
-  transform: none !important;
+  transform: translateX(0) !important;
   pointer-events: auto !important;
 }
 
@@ -129,6 +134,7 @@ body.sidebar-collapsed .brand-copy,
 body.sidebar-collapsed.sidebar-hover-expanded .brand-copy {
   opacity: 0 !important;
   pointer-events: none !important;
+  transform: translateX(-8px) !important;
 }
 
 .nav,
@@ -196,9 +202,9 @@ body.sidebar-hover-expanded .nav-item > span:not(.nav-icon):not(.nav-count) {
   opacity: 1 !important;
   white-space: nowrap !important;
   pointer-events: auto !important;
+  transform: translateX(0) !important;
 }
 
-/* Collapsed state: each nav item is a standalone square centered on the hamburger rail. */
 body.sidebar-collapsed .nav-item,
 body.sidebar-collapsed.sidebar-hover-expanded .nav-item {
   position: relative !important;
@@ -233,6 +239,7 @@ body.sidebar-collapsed.sidebar-hover-expanded .nav-item > span:not(.nav-icon):no
   display: none !important;
   opacity: 0 !important;
   pointer-events: none !important;
+  transform: translateX(-8px) !important;
 }
 
 body.sidebar-collapsed .nav-item.active,
@@ -243,7 +250,6 @@ body.sidebar-collapsed.sidebar-hover-expanded .nav-item.active {
   box-shadow: none !important;
 }
 
-/* One icon-only theme button, fixed at the bottom, on the same rail. */
 .sidebar-footer,
 body.sidebar-collapsed .sidebar-footer,
 body.sidebar-collapsed.sidebar-hover-expanded .sidebar-footer {
@@ -317,4 +323,18 @@ body[data-theme="dark"] .theme-toggle::before {
 .theme-toggle:hover {
   border-color: color-mix(in srgb, var(--accent) 36%, var(--line)) !important;
   background: var(--accent-soft) !important;
+}
+
+/* Product-ui previously hid settings rows; restore all settings functionality. */
+#settings-view .settings-list > .settings-row,
+#settings-view .settings-list > .settings-row:nth-child(2),
+#settings-view .settings-list > .settings-row:nth-child(3),
+#settings-view .settings-list > .settings-row:nth-child(4),
+#settings-view .settings-list > .settings-row:nth-child(5) {
+  display: flex !important;
+}
+
+#settings-view .settings-list > .settings-row.settings-row-stack,
+#ctf2-settings-row {
+  display: grid !important;
 }
