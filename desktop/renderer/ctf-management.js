@@ -2,7 +2,7 @@
   installStylesheets();
   window.setTimeout(() => {
     installCtf2SettingsCard();
-    installCtf2CategoryDropdownSkin();
+    installSelectSkins();
   }, 0);
 
   function installStylesheets() {
@@ -15,31 +15,39 @@
     });
   }
 
-  function installCtf2CategoryDropdownSkin() {
-    const select = document.getElementById("ctf2-category-select");
-    if (!select || document.getElementById("ctf2-category-skin")) return;
+  function installSelectSkins() {
+    installSelectSkin("ctf2-category-select", "题型");
+    installSelectSkin("web-max-pages-select", "最多页面");
+    installSelectSkin("web-max-depth-select", "同源深度");
+  }
+
+  function installSelectSkin(selectId, fallbackLabel) {
+    const select = document.getElementById(selectId);
+    if (!select || document.getElementById(`${selectId}-skin`)) return;
 
     const field = select.closest(".field");
+    const label = field?.querySelector("span")?.textContent?.trim() || fallbackLabel;
     if (field) {
-      field.classList.add("ctf2-native-category-field");
+      field.classList.add("select-native-field");
     }
 
     const root = document.createElement("div");
-    root.id = "ctf2-category-skin";
-    root.className = "ctf2-category-skin";
+    root.id = `${selectId}-skin`;
+    root.className = `select-skin ${selectId}-skin`;
     root.innerHTML = `
-      <button id="ctf2-category-button" class="ctf2-category-button" type="button" aria-expanded="false">
-        <span class="ctf2-category-label">题型</span>
-        <strong id="ctf2-category-current">全部</strong>
-        <span class="ctf2-category-caret">▾</span>
+      <button class="select-skin-button" type="button" aria-expanded="false">
+        <span class="select-skin-label"></span>
+        <strong class="select-skin-current"></strong>
+        <span class="select-skin-caret">▾</span>
       </button>
-      <div id="ctf2-category-menu" class="ctf2-category-menu" hidden></div>
+      <div class="select-skin-menu" hidden></div>
     `;
+    root.querySelector(".select-skin-label").textContent = label;
     (field || select).after(root);
 
-    const button = root.querySelector("#ctf2-category-button");
-    const current = root.querySelector("#ctf2-category-current");
-    const menu = root.querySelector("#ctf2-category-menu");
+    const button = root.querySelector(".select-skin-button");
+    const current = root.querySelector(".select-skin-current");
+    const menu = root.querySelector(".select-skin-menu");
 
     function labelOf(option) {
       return option?.textContent?.trim() || option?.value || "全部";
@@ -53,7 +61,7 @@
       options.forEach((option) => {
         const item = document.createElement("button");
         item.type = "button";
-        item.className = `ctf2-category-option${option.value === select.value ? " is-active" : ""}`;
+        item.className = `select-skin-option${option.value === select.value ? " is-active" : ""}`;
         item.textContent = labelOf(option);
         item.addEventListener("click", () => {
           select.value = option.value;
