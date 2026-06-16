@@ -24,7 +24,7 @@
 
 .select-skin-button {
   width: 100%;
-  min-height: 50px;
+  min-height: 52px;
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
   grid-template-areas:
@@ -106,8 +106,21 @@ body[data-theme="dark"] .select-skin-menu {
   box-shadow: 0 20px 44px rgba(0, 0, 0, 0.36);
 }
 
-.ctf2-category-select-skin {
-  min-width: 0;
+#ctf2-view .ctf2-filters {
+  grid-template-columns: minmax(300px, 1fr) 260px auto !important;
+  gap: 14px !important;
+  align-items: end !important;
+}
+
+#ctf2-view .ctf2-filters input,
+#ctf2-view .select-skin-button,
+#ctf2-view .ctf2-filters .secondary-button {
+  min-height: 54px !important;
+  height: 54px !important;
+}
+
+#ctf2-view .ctf2-filters .secondary-button {
+  padding-inline: 22px !important;
 }
 
 #web-view .web-layout {
@@ -136,6 +149,10 @@ body[data-theme="dark"] .select-skin-menu {
   grid-template-columns: repeat(2, minmax(140px, 1fr));
   gap: 10px;
   margin-top: 12px;
+}
+
+#web-view .web-limit-grid .select-skin-button {
+  min-height: 52px;
 }
 
 #web-view .web-actions {
@@ -198,6 +215,43 @@ body[data-theme="dark"] .select-skin-menu {
   padding: 14px;
 }
 
+#settings-view .settings-list {
+  max-width: 100%;
+}
+
+#settings-view .settings-row {
+  min-width: 0;
+}
+
+#settings-view .settings-row > div,
+#settings-view .settings-actions,
+#settings-view textarea {
+  min-width: 0;
+}
+
+#settings-view .sandbox-info-grid {
+  min-width: 0;
+  grid-template-columns: minmax(220px, 1fr) minmax(140px, 180px) !important;
+}
+
+#settings-view .sandbox-info-grid > div {
+  min-width: 0;
+  overflow: hidden;
+}
+
+#sandbox-path {
+  display: block;
+  max-width: 100%;
+  white-space: normal;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  line-height: 1.35;
+}
+
+#sandbox-size {
+  white-space: nowrap;
+}
+
 #ctf2-settings-row .settings-row-header,
 .update-row {
   display: flex;
@@ -213,6 +267,12 @@ body[data-theme="dark"] .select-skin-menu {
 #ctf2-settings-row .ctf2-history-list .stack-item,
 #ctf2-view .stack-item {
   padding: 10px 12px;
+}
+
+@media (max-width: 1180px) {
+  #ctf2-view .ctf2-filters {
+    grid-template-columns: minmax(220px, 1fr) minmax(190px, 240px) auto !important;
+  }
 }
 
 @media (max-width: 1100px) {
