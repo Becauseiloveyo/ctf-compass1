@@ -100,4 +100,17 @@ const compactCss = read("desktop/renderer/compact-ui.css");
   assert(!compactCss.includes(selector), `compact-ui.css must not override sidebar selector ${selector}`);
 });
 
+const management = read("desktop/renderer/ctf-management.js");
+[
+  "installRendererCompatibilityIds",
+  "result-category",
+  "summary-category",
+  "check-update-button",
+  "open-release-button",
+  "web-max-pages-select",
+  "ctf2-category-select",
+].forEach((needle) => {
+  assert(management.includes(needle), `ctf-management.js is missing ${needle}`);
+});
+
 console.log("desktop smoke test passed");
