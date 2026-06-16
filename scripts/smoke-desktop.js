@@ -89,4 +89,15 @@ assert(html.includes('<script src="./web-polyfill.js"></script>'), "index.html s
 assert(html.includes('<script src="./ctf-management.js"></script>'), "index.html should load ctf-management as a classic script");
 assert(html.includes('<script src="./renderer.js"></script>'), "index.html should load renderer as a classic script");
 
+const compactCss = read("desktop/renderer/compact-ui.css");
+[
+  ".sidebar",
+  ".sidebar-top",
+  ".nav-item",
+  ".brand-mark",
+  ".theme-toggle",
+].forEach((selector) => {
+  assert(!compactCss.includes(selector), `compact-ui.css must not override sidebar selector ${selector}`);
+});
+
 console.log("desktop smoke test passed");
