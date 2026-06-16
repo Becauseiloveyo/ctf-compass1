@@ -2,6 +2,7 @@
 
 :root {
   --sidebar-rail-x: 30px;
+  --sidebar-collapsed-item: 56px;
   --sidebar-toggle-size: 42px;
   --sidebar-theme-size: 46px;
 }
@@ -60,6 +61,7 @@ body.sidebar-collapsed.sidebar-hover-expanded .sidebar-top {
   gap: 16px !important;
 }
 
+/* The hamburger is the rail reference. Its center is x=30px inside the sidebar content box. */
 .sidebar-toggle,
 body:not(.sidebar-collapsed) .sidebar-toggle,
 body.sidebar-collapsed .sidebar-toggle,
@@ -80,8 +82,10 @@ body.sidebar-collapsed.sidebar-hover-expanded .sidebar-toggle {
   width: 24px !important;
   height: 24px !important;
   margin: auto !important;
+  display: block !important;
 }
 
+/* Brand icon is fixed on the same rail. Text only exists in expanded state. */
 .brand,
 body:not(.sidebar-collapsed) .brand,
 body.sidebar-collapsed .brand,
@@ -92,6 +96,7 @@ body.sidebar-collapsed.sidebar-hover-expanded .brand {
   padding: 0 !important;
   border: 0 !important;
   background: transparent !important;
+  overflow: visible !important;
 }
 
 .brand-mark,
@@ -146,8 +151,7 @@ body.sidebar-collapsed.sidebar-hover-expanded .nav-group {
 
 .nav-item,
 body:not(.sidebar-collapsed) .nav-item,
-body.sidebar-collapsed .nav-item,
-body.sidebar-collapsed.sidebar-hover-expanded .nav-item {
+body.sidebar-hover-expanded .nav-item {
   position: relative !important;
   width: 100% !important;
   min-height: 44px !important;
@@ -157,11 +161,12 @@ body.sidebar-collapsed.sidebar-hover-expanded .nav-item {
   display: block !important;
   border-radius: 13px !important;
   box-shadow: none !important;
+  overflow: visible !important;
 }
 
 .nav-icon,
-body.sidebar-collapsed .nav-icon,
-body.sidebar-collapsed.sidebar-hover-expanded .nav-icon {
+body:not(.sidebar-collapsed) .nav-icon,
+body.sidebar-hover-expanded .nav-icon {
   position: absolute !important;
   left: var(--sidebar-rail-x) !important;
   top: 50% !important;
@@ -177,6 +182,7 @@ body.sidebar-collapsed.sidebar-hover-expanded .nav-icon {
   width: 100% !important;
   height: 100% !important;
   margin: auto !important;
+  display: block !important;
 }
 
 .nav-item > span:not(.nav-icon):not(.nav-count),
@@ -192,8 +198,39 @@ body.sidebar-hover-expanded .nav-item > span:not(.nav-icon):not(.nav-count) {
   pointer-events: auto !important;
 }
 
+/* Collapsed state: each nav item is a standalone square centered on the hamburger rail. */
+body.sidebar-collapsed .nav-item,
+body.sidebar-collapsed.sidebar-hover-expanded .nav-item {
+  position: relative !important;
+  width: var(--sidebar-collapsed-item) !important;
+  height: var(--sidebar-collapsed-item) !important;
+  min-height: var(--sidebar-collapsed-item) !important;
+  margin-left: calc(var(--sidebar-rail-x) - var(--sidebar-collapsed-item) / 2) !important;
+  margin-right: 0 !important;
+  padding: 0 !important;
+  display: grid !important;
+  place-items: center !important;
+  border-radius: 18px !important;
+  overflow: hidden !important;
+  box-shadow: none !important;
+}
+
+body.sidebar-collapsed .nav-icon,
+body.sidebar-collapsed.sidebar-hover-expanded .nav-icon {
+  position: static !important;
+  left: auto !important;
+  top: auto !important;
+  width: 26px !important;
+  height: 26px !important;
+  margin: 0 !important;
+  transform: none !important;
+  display: grid !important;
+  place-items: center !important;
+}
+
 body.sidebar-collapsed .nav-item > span:not(.nav-icon):not(.nav-count),
 body.sidebar-collapsed.sidebar-hover-expanded .nav-item > span:not(.nav-icon):not(.nav-count) {
+  display: none !important;
   opacity: 0 !important;
   pointer-events: none !important;
 }
@@ -206,6 +243,7 @@ body.sidebar-collapsed.sidebar-hover-expanded .nav-item.active {
   box-shadow: none !important;
 }
 
+/* One icon-only theme button, fixed at the bottom, on the same rail. */
 .sidebar-footer,
 body.sidebar-collapsed .sidebar-footer,
 body.sidebar-collapsed.sidebar-hover-expanded .sidebar-footer {
