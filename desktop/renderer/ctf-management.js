@@ -1,8 +1,10 @@
 (function () {
+  installRendererCompatibilityIds();
   installStylesheets();
   window.setTimeout(() => {
     installCtf2SettingsCard();
     installSelectSkins();
+    installSettingsExtraActions();
   }, 0);
 
   function installStylesheets() {
@@ -12,6 +14,61 @@
       link.rel = "stylesheet";
       link.href = href;
       document.head.append(link);
+    });
+  }
+
+  function installRendererCompatibilityIds() {
+    const aliases = [
+      ["result-category", "summary-category"],
+      ["confidence-pill", "summary-confidence"],
+      ["result-summary", "summary-text"],
+      ["result-map", "summary-evidence"],
+      ["workbench-family-tabs", "workbench-tabs"],
+      ["workbench-body", "workbench-panel"],
+    ];
+    aliases.forEach(([from, to]) => {
+      const existing = document.getElementById(to);
+      const node = document.getElementById(from);
+      if (!existing && node) {
+        node.id = to;
+      }
+    });
+  }
+
+  function installSettingsExtraActions() {
+    const status = document.getElementById("update-status-text");
+    const checkButton = document.getElementById("check-update-button");
+    const openButton = document.getElementById("open-release-button");
+    if (!status || !checkButton || checkButton.dataset.bound === "true") return;
+    checkButton.dataset.bound = "true";
+
+    checkButton.addEventListener("click", async () => {
+      checkButton.disabled = true;
+      status.textContent = "正在检查 Release...";
+      try {
+        const result = await window.ctfCompass.checkForUpdates?.();
+        if (!result) {
+          status.textContent = "当前环境不支持检查更新。";
+          return;
+        }
+        const latest = result.latestVersion || result.name || "未知版本";
+        const current = result.currentVersion || "当前版本";
+        status.textContent = result.hasUpdate
+          ? `发现新版：${latest}，当前 ${current}。`
+          : `已是最新版本：${current}。Release：${latest}。`;
+      } catch (error) {
+        status.textContent = `检查失败：${error.message}`;
+      } finally {
+        checkButton.disabled = false;
+      }
+    });
+
+    openButton?.addEventListener("click", async () => {
+      try {
+        await window.ctfCompass.openExternal?.("https://github.com/Becauseiloveyo/ctf-compass1/releases/latest");
+      } catch (error) {
+        status.textContent = `打开失败：${error.message}`;
+      }
     });
   }
 
